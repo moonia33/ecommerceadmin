@@ -1028,15 +1028,6 @@
 									{/if}
 								</div>
 								<div class="text-xs text-slate-400">{line.warehouse_name}</div>
-								{#if line.unallocated_qty > 0}
-									<div class="mt-0.5 text-[11px] font-medium text-rose-600">
-										Nerezervuota: {line.unallocated_qty} vnt.
-									</div>
-								{:else if line.allocated_qty > 0}
-									<div class="mt-0.5 text-[11px] text-emerald-600">
-										Rezervuota: {line.allocated_qty} vnt.
-									</div>
-								{/if}
 							</td>
 							<td class="px-4 py-3 text-right text-slate-800">{line.qty}</td>
 							<td class="px-4 py-3 text-right text-slate-600">
