@@ -38,6 +38,9 @@ export type OpsOrderLine = {
 	warehouse_code: string;
 	warehouse_name: string;
 	warehouse_country: string;
+	warehouse_kind: string;
+	allocated_qty: number;
+	unallocated_qty: number;
 	brand_name: string;
 	unit_net: string;
 	unit_vat: string;
@@ -957,6 +960,17 @@ export function updateOrderAddress(
 	}
 ): Promise<OpsOrderDetail> {
 	return patch<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/address`, payload);
+}
+
+export function updateOrderSupplier(
+	orderId: number | string,
+	payload: {
+		supplier_reservation_status?: string;
+		supplier_reference?: string;
+		supplier_notes?: string;
+	}
+): Promise<OpsOrderDetail> {
+	return patch<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/supplier`, payload);
 }
 
 export function addOrderLine(

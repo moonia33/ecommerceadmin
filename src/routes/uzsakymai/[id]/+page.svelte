@@ -38,6 +38,7 @@
 		updateOrderAddress,
 		updateOrderLine,
 		updateOrderShipping,
+		updateOrderSupplier,
 		updateShipment,
 		type OpsCustomerAddress,
 		type OpsLockerOption,
@@ -99,6 +100,11 @@
 	let collectModal = $state<OpsSurcharge | null>(null);
 	let collectMethod = $state<'montonio' | 'bank_transfer'>('montonio');
 	let collectSendEmail = $state(true);
+
+	let supplierModalOpen = $state(false);
+	let supStatus = $state('');
+	let supRef = $state('');
+	let supNotes = $state('');
 
 	let addressModalOpen = $state(false);
 	let savedAddresses = $state<OpsCustomerAddress[]>([]);
@@ -398,6 +404,33 @@
 		reconcile: 'Suderinti mokėjimą'
 	};
 
+	function openSupplier() {
+		if (!order) return;
+		supStatus = order.supplier_reservation_status || 'not_needed';
+		supRef = order.supplier_reference || '';
+		supNotes = order.supplier_notes || '';
+		supplierModalOpen = true;
+	}
+
+	async function saveSupplier() {
+		if (!order || busy) return;
+		busy = true;
+		try {
+			await updateOrderSupplier(order.id, {
+				supplier_reservation_status: supStatus,
+				supplier_reference: supRef.trim(),
+				supplier_notes: supNotes
+			});
+			pushToast('success', 'Tiekėjo rezervacija atnaujinta.');
+			supplierModalOpen = false;
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Nepavyko išsaugoti.');
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function load() {
 		loading = true;
 		try {
@@ -492,9 +525,14 @@
 				</p>
 				<div class="mt-2 flex flex-wrap gap-2">
 					<StatusBadge kind="fulfillment" value={order.fulfillment_mode} />
-					<span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 ring-1 ring-slate-300 ring-inset">
+					<button
+						type="button"
+						class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 ring-1 ring-slate-300 ring-inset hover:bg-slate-200"
+						onclick={openSupplier}
+						title="Keisti tiekėjo rezervaciją"
+					>
 						Tiekėjo rezervacija: {order.supplier_reservation_status || '—'}
-					</span>
+					</button>
 					{#if order.supplier_reference}
 						<span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 ring-1 ring-slate-300 ring-inset">
 							Tiekėjo ref.: {order.supplier_reference}
@@ -979,8 +1017,24 @@
 							<td class="px-4 py-3 font-mono text-xs text-slate-600">{line.sku || '—'}</td>
 							<td class="px-4 py-3 text-slate-600">{line.brand_name || '—'}</td>
 							<td class="px-4 py-3">
-								<div class="text-slate-800">{line.warehouse_code || '—'}</div>
+								<div class="flex flex-wrap items-center gap-1.5">
+									<span class="text-slate-800">{line.warehouse_code || '—'}</span>
+									{#if line.warehouse_kind === 'remote'}
+										<span class="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200 ring-inset">
+											Nuotolinis
+										</span>
+									{/if}
+								</div>
 								<div class="text-xs text-slate-400">{line.warehouse_name}</div>
+								{#if line.unallocated_qty > 0}
+									<div class="mt-0.5 text-[11px] font-medium text-rose-600">
+										Nerezervuota: {line.unallocated_qty} vnt.
+									</div>
+								{:else if line.allocated_qty > 0}
+									<div class="mt-0.5 text-[11px] text-emerald-600">
+										Rezervuota: {line.allocated_qty} vnt.
+									</div>
+								{/if}
 							</td>
 							<td class="px-4 py-3 text-right text-slate-800">{line.qty}</td>
 							<td class="px-4 py-3 text-right text-slate-600">
@@ -1583,6 +1637,58 @@
 			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
 			onclick={() => void submitAddress()}
 			disabled={busy || (addressMode === 'saved' && !selectedAddressId)}
+		>
+			{busy ? 'Saugoma…' : 'Išsaugoti'}
+		</button>
+	{/snippet}
+</Modal>
+
+<Modal
+	bind:open={
+		() => supplierModalOpen,
+		(v) => {
+			if (!v) supplierModalOpen = false;
+		}
+	}
+	title="Tiekėjo rezervacija"
+	subtitle={`Užsakymas #${order?.id ?? ''}`}
+>
+	<label class="block text-sm font-medium text-slate-700">
+		Būsena
+		<select class={`${inputClass} mt-1`} bind:value={supStatus}>
+			<option value="not_needed">Nereikalinga</option>
+			<option value="pending">Laukiama tiekėjo patvirtinimo</option>
+			<option value="reserved">Rezervuota pas tiekėją</option>
+			<option value="failed">Nepavyko rezervuoti</option>
+			<option value="cancelled">Atšaukta</option>
+		</select>
+	</label>
+	<label class="mt-3 block text-sm font-medium text-slate-700">
+		Tiekėjo nuoroda / PO nr.
+		<input class={`${inputClass} mt-1`} bind:value={supRef} placeholder="Pvz.: SUP-2024-1234" />
+	</label>
+	<label class="mt-3 block text-sm font-medium text-slate-700">
+		Pastabos
+		<textarea
+			class={`${inputClass} mt-1 min-h-[80px]`}
+			bind:value={supNotes}
+			placeholder="Pvz.: tiekėjas patvirtino atvykimą po 5 d.d."
+		></textarea>
+	</label>
+	{#snippet footer()}
+		<button
+			type="button"
+			class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+			onclick={() => (supplierModalOpen = false)}
+			disabled={busy}
+		>
+			Atšaukti
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
+			onclick={() => void saveSupplier()}
+			disabled={busy}
 		>
 			{busy ? 'Saugoma…' : 'Išsaugoti'}
 		</button>
