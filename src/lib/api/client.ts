@@ -934,6 +934,28 @@ export function searchVariants(params: QueryParams = {}): Promise<OpsVariantPick
 	return get<OpsVariantPicker[]>('/api/v1/ops/catalog/variants/search', params);
 }
 
+export function fetchOrderAddresses(orderId: number | string): Promise<OpsCustomerAddress[]> {
+	return get<OpsCustomerAddress[]>(`/api/v1/ops/orders/${orderId}/addresses`);
+}
+
+export function updateOrderAddress(
+	orderId: number | string,
+	payload: {
+		user_address_id?: number;
+		full_name?: string;
+		company?: string;
+		line1?: string;
+		city?: string;
+		postal_code?: string;
+		country_code?: string;
+		phone?: string;
+		save_to_customer?: boolean;
+		set_default_shipping?: boolean;
+	}
+): Promise<OpsOrderDetail> {
+	return patch<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/address`, payload);
+}
+
 export function addOrderLine(
 	orderId: number | string,
 	payload: { variant_id: number; qty: number; offer_id?: number }

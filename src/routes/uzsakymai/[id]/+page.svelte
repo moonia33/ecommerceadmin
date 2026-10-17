@@ -23,6 +23,7 @@
 		collectSurcharge,
 		createShipment,
 		fetchLockers,
+		fetchOrderAddresses,
 		fetchOrderDetail,
 		generateLabelForShipment,
 		generateShipmentLabel,
@@ -34,9 +35,11 @@
 		refreshShipmentTracking,
 		resolveSurcharge,
 		searchVariants,
+		updateOrderAddress,
 		updateOrderLine,
 		updateOrderShipping,
 		updateShipment,
+		type OpsCustomerAddress,
 		type OpsLockerOption,
 		type OpsOrderDetail,
 		type OpsOrderLine,
@@ -96,6 +99,20 @@
 	let collectModal = $state<OpsSurcharge | null>(null);
 	let collectMethod = $state<'montonio' | 'bank_transfer'>('montonio');
 	let collectSendEmail = $state(true);
+
+	let addressModalOpen = $state(false);
+	let savedAddresses = $state<OpsCustomerAddress[]>([]);
+	let addressMode = $state<'saved' | 'manual'>('manual');
+	let selectedAddressId = $state<number | null>(null);
+	let addrFullName = $state('');
+	let addrCompany = $state('');
+	let addrLine1 = $state('');
+	let addrCity = $state('');
+	let addrPostal = $state('');
+	let addrCountry = $state('LT');
+	let addrPhone = $state('');
+	let addrSaveToCustomer = $state(false);
+	let addrSetDefault = $state(false);
 
 	const SHIPPING_METHODS = [
 		{ code: 'dpd_locker', label: 'DPD paštomatas' },
@@ -273,6 +290,66 @@
 			await load();
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Eilutės pakeisti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function openAddressModal() {
+		if (!order) return;
+		addrFullName = order.shipping_address.full_name;
+		addrCompany = order.shipping_address.company;
+		addrLine1 = order.shipping_address.line1;
+		addrCity = order.shipping_address.city;
+		addrPostal = order.shipping_address.postal_code;
+		addrCountry = order.shipping_address.country_code || order.shipping_country_code || 'LT';
+		addrPhone = order.shipping_address.phone || order.customer.phone;
+		addrSaveToCustomer = false;
+		addrSetDefault = false;
+		selectedAddressId = null;
+		try {
+			savedAddresses = await fetchOrderAddresses(order.id);
+		} catch {
+			savedAddresses = [];
+		}
+		if (savedAddresses.length) {
+			addressMode = 'saved';
+			const def = savedAddresses.find((a) => a.is_default_shipping);
+			selectedAddressId = def?.id ?? savedAddresses[0].id;
+		} else {
+			addressMode = 'manual';
+		}
+		addressModalOpen = true;
+	}
+
+	async function submitAddress() {
+		if (!order || busy) return;
+		busy = true;
+		try {
+			if (addressMode === 'saved') {
+				if (!selectedAddressId) {
+					pushToast('error', 'Pasirinkite adresą.');
+					return;
+				}
+				await updateOrderAddress(order.id, { user_address_id: selectedAddressId });
+			} else {
+				await updateOrderAddress(order.id, {
+					full_name: addrFullName,
+					company: addrCompany,
+					line1: addrLine1,
+					city: addrCity,
+					postal_code: addrPostal,
+					country_code: addrCountry,
+					phone: addrPhone,
+					save_to_customer: addrSaveToCustomer,
+					set_default_shipping: addrSetDefault
+				});
+			}
+			pushToast('success', 'Pristatymo adresas atnaujintas.');
+			addressModalOpen = false;
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Adreso atnaujinti nepavyko.');
 		} finally {
 			busy = false;
 		}
@@ -528,8 +605,9 @@
 				</div>
 			{/if}
 
-			<div class="mt-3 space-y-1 text-sm text-slate-600">
-				<p class="font-medium text-slate-800">{order.shipping_address.full_name || '—'}</p>
+			<div class="mt-3 flex items-start justify-between gap-2">
+				<div class="space-y-1 text-sm text-slate-600">
+					<p class="font-medium text-slate-800">{order.shipping_address.full_name || '—'}</p>
 				{#if order.shipping_address.company}<p>{order.shipping_address.company}</p>{/if}
 				<p>{order.shipping_address.line1 || '—'}</p>
 				<p>
@@ -537,7 +615,16 @@
 					{order.shipping_address.postal_code || ''}, {order.shipping_address.country_code ||
 						order.shipping_country_code}
 				</p>
-				{#if order.shipping_address.phone}<p>Tel.: {order.shipping_address.phone}</p>{/if}
+					{#if order.shipping_address.phone}<p>Tel.: {order.shipping_address.phone}</p>{/if}
+				</div>
+				<button
+					type="button"
+					class="shrink-0 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+					onclick={() => void openAddressModal()}
+					disabled={busy}
+				>
+					Keisti
+				</button>
 			</div>
 
 			<div class="mt-4 space-y-1.5 border-t border-slate-100 pt-3 text-sm">
@@ -1361,6 +1448,143 @@
 			disabled={busy}
 		>
 			{busy ? 'Siunčiama…' : 'Išsiųsti'}
+		</button>
+	{/snippet}
+</Modal>
+
+<!-- Pristatymo adresas -->
+<Modal
+	bind:open={
+		() => addressModalOpen,
+		(v) => {
+			if (!v) addressModalOpen = false;
+		}
+	}
+	title="Pristatymo adresas"
+	subtitle={`Užsakymas #${order?.id ?? ''}`}
+>
+	{#if savedAddresses.length}
+		<div class="mb-4 flex gap-2">
+			<button
+				type="button"
+				class="rounded-lg px-3 py-1.5 text-xs font-medium {addressMode === 'saved'
+					? 'bg-sky-600 text-white'
+					: 'border border-slate-300 text-slate-600 hover:bg-slate-50'}"
+				onclick={() => (addressMode = 'saved')}
+			>
+				Iš kliento adresų ({savedAddresses.length})
+			</button>
+			<button
+				type="button"
+				class="rounded-lg px-3 py-1.5 text-xs font-medium {addressMode === 'manual'
+					? 'bg-sky-600 text-white'
+					: 'border border-slate-300 text-slate-600 hover:bg-slate-50'}"
+				onclick={() => (addressMode = 'manual')}
+			>
+				Įvesti naują
+			</button>
+		</div>
+	{/if}
+
+	{#if addressMode === 'saved' && savedAddresses.length}
+		<div class="max-h-72 space-y-2 overflow-y-auto">
+			{#each savedAddresses as a}
+				<label
+					class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 {selectedAddressId ===
+					a.id
+						? 'border-sky-400 bg-sky-50 ring-1 ring-sky-300'
+						: 'border-slate-200 hover:bg-slate-50'}"
+				>
+					<input
+						type="radio"
+						name="saved-addr"
+						class="mt-1"
+						checked={selectedAddressId === a.id}
+						onchange={() => (selectedAddressId = a.id)}
+					/>
+					<div class="text-sm">
+						<p class="font-medium text-slate-800">
+							{a.full_name || '—'}
+							{#if a.is_default_shipping}
+								<span class="ml-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700 ring-1 ring-emerald-200 ring-inset">
+									numatytasis
+								</span>
+							{/if}
+							{#if a.label}<span class="ml-1 text-xs text-slate-400">({a.label})</span>{/if}
+						</p>
+						{#if a.company}<p class="text-slate-600">{a.company}</p>{/if}
+						<p class="text-slate-600">
+							{a.line1}, {a.city}, {a.postal_code}, {a.country_code}
+						</p>
+						{#if a.phone}<p class="text-xs text-slate-500">Tel.: {a.phone}</p>{/if}
+					</div>
+				</label>
+			{/each}
+		</div>
+	{:else}
+		<div class="grid grid-cols-2 gap-3">
+			<label class="col-span-2 block text-sm font-medium text-slate-700">
+				Vardas, pavardė
+				<input class={`${inputClass} mt-1`} bind:value={addrFullName} />
+			</label>
+			<label class="col-span-2 block text-sm font-medium text-slate-700">
+				Įmonė (nebūtina)
+				<input class={`${inputClass} mt-1`} bind:value={addrCompany} />
+			</label>
+			<label class="col-span-2 block text-sm font-medium text-slate-700">
+				Gatvė, namas, butas
+				<input class={`${inputClass} mt-1`} bind:value={addrLine1} />
+			</label>
+			<label class="block text-sm font-medium text-slate-700">
+				Miestas
+				<input class={`${inputClass} mt-1`} bind:value={addrCity} />
+			</label>
+			<label class="block text-sm font-medium text-slate-700">
+				Pašto kodas
+				<input class={`${inputClass} mt-1`} bind:value={addrPostal} />
+			</label>
+			<label class="block text-sm font-medium text-slate-700">
+				Šalis
+				<input class={`${inputClass} mt-1`} bind:value={addrCountry} maxlength="2" />
+			</label>
+			<label class="block text-sm font-medium text-slate-700">
+				Telefonas
+				<input class={`${inputClass} mt-1`} bind:value={addrPhone} />
+			</label>
+		</div>
+		{#if order?.customer.user_id}
+			<label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+				<input type="checkbox" bind:checked={addrSaveToCustomer} class="rounded border-slate-300" />
+				Išsaugoti kaip kliento adresą
+			</label>
+			{#if addrSaveToCustomer}
+				<label class="mt-2 flex items-center gap-2 text-sm text-slate-700">
+					<input
+						type="checkbox"
+						bind:checked={addrSetDefault}
+						class="rounded border-slate-300"
+					/>
+					Pažymėti kaip numatytąjį pristatymo adresą
+				</label>
+			{/if}
+		{/if}
+	{/if}
+	{#snippet footer()}
+		<button
+			type="button"
+			class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+			onclick={() => (addressModalOpen = false)}
+			disabled={busy}
+		>
+			Atšaukti
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
+			onclick={() => void submitAddress()}
+			disabled={busy || (addressMode === 'saved' && !selectedAddressId)}
+		>
+			{busy ? 'Saugoma…' : 'Išsaugoti'}
 		</button>
 	{/snippet}
 </Modal>
