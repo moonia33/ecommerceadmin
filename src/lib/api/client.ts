@@ -95,12 +95,26 @@ export type OpsOrderTotals = {
 	shipping_net: string;
 	shipping_vat: string;
 	shipping_gross: string;
+	discounts_net: string;
+	discounts_vat: string;
+	discounts_gross: string;
 	total_net: string;
 	total_vat: string;
 	total_gross: string;
 	currency: string;
 	paid_gross: string;
 	balance_due: string;
+};
+
+export type OpsOrderDiscount = {
+	id: number;
+	order_id: number;
+	kind: string;
+	code: string;
+	name: string;
+	net: string;
+	vat: string;
+	gross: string;
 };
 
 export type OpsAuditEvent = {
@@ -149,6 +163,7 @@ export type OpsOrderDetail = OpsOrderListItem & {
 	customer_stats: OpsCustomerStats | null;
 	shipments: OpsShipmentRow[];
 	surcharges: OpsSurcharge[];
+	discounts: OpsOrderDiscount[];
 };
 
 export type OpsShipment = {
@@ -983,9 +998,23 @@ export function addOrderLine(
 export function updateOrderLine(
 	orderId: number | string,
 	lineId: number,
-	payload: { qty: number }
+	payload: { qty?: number; unit_gross?: string; unit_net?: string; name?: string }
 ): Promise<OpsOrderDetail> {
 	return patch<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/lines/${lineId}`, payload);
+}
+
+export function addOrderDiscount(
+	orderId: number | string,
+	payload: { kind: 'percent' | 'amount' | 'coupon'; value?: string; code?: string; name?: string }
+): Promise<OpsOrderDetail> {
+	return post<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/discount`, payload);
+}
+
+export function removeOrderDiscount(
+	orderId: number | string,
+	discountId: number
+): Promise<OpsOrderDetail> {
+	return post<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/discounts/${discountId}/remove`);
 }
 
 export function collectSurcharge(

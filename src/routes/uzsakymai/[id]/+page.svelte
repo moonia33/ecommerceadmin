@@ -18,6 +18,7 @@
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import {
 		ApiError,
+		addOrderDiscount,
 		addOrderLine,
 		cancelSurcharge,
 		collectSurcharge,
@@ -33,6 +34,7 @@
 		orderAction,
 		paymentAction,
 		refreshShipmentTracking,
+		removeOrderDiscount,
 		resolveSurcharge,
 		searchVariants,
 		updateOrderAddress,
@@ -284,18 +286,91 @@
 		}
 	}
 
-	async function removeLine(line: OpsOrderLine) {
+	async function saveLine(
+		line: OpsOrderLine,
+		payload: { qty?: number; unit_gross?: string; name?: string },
+		successMsg: string
+	) {
 		if (!order || busy) return;
-		const label = line.name || line.sku;
-		const nextQty = line.qty - 1;
-		if (!window.confirm(nextQty > 0 ? `Sumažinti „${label}“ kiekį iki ${nextQty}?` : `Pašalinti „${label}“ iš užsakymo?`)) return;
 		busy = true;
 		try {
-			await updateOrderLine(order.id, line.order_line_id, { qty: Math.max(0, nextQty) });
-			pushToast('success', nextQty > 0 ? 'Kiekis sumažintas.' : 'Eilutė pašalinta.');
+			await updateOrderLine(order.id, line.order_line_id, payload);
+			pushToast('success', successMsg);
 			await load();
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Eilutės pakeisti nepavyko.');
+			await load();
+		} finally {
+			busy = false;
+		}
+	}
+
+	function saveLineQty(line: OpsOrderLine, raw: string) {
+		const qty = Math.max(0, Math.floor(Number(raw)));
+		if (Number.isNaN(qty) || qty === line.qty) return;
+		void saveLine(line, { qty }, 'Kiekis pakeistas.');
+	}
+
+	function saveLinePrice(line: OpsOrderLine, raw: string) {
+		const val = raw.trim().replace(',', '.');
+		if (!val || Number.isNaN(Number(val)) || val === line.unit_gross) return;
+		void saveLine(line, { unit_gross: val }, 'Kaina pakeista.');
+	}
+
+	async function removeLine(line: OpsOrderLine) {
+		if (!order || busy) return;
+		const label = line.name || line.sku;
+		if (!window.confirm(`Pašalinti „${label}“ iš užsakymo?`)) return;
+		await saveLine(line, { qty: 0 }, 'Eilutė pašalinta.');
+	}
+
+	// --- Discounts ---
+	let discountModalOpen = $state(false);
+	let discountKind = $state<'percent' | 'amount' | 'coupon'>('percent');
+	let discountValue = $state('');
+	let discountCode = $state('');
+	let discountName = $state('');
+
+	async function saveDiscount() {
+		if (!order || busy) return;
+		const payload: { kind: 'percent' | 'amount' | 'coupon'; value?: string; code?: string; name?: string } = {
+			kind: discountKind,
+			name: discountName.trim() || undefined
+		};
+		if (discountKind === 'coupon') {
+			if (!discountCode.trim()) return;
+			payload.code = discountCode.trim();
+		} else {
+			const v = discountValue.trim().replace(',', '.');
+			if (!v || Number.isNaN(Number(v))) return;
+			payload.value = v;
+		}
+		busy = true;
+		try {
+			await addOrderDiscount(order.id, payload);
+			pushToast('success', 'Nuolaida pritaikyta.');
+			discountModalOpen = false;
+			discountValue = '';
+			discountCode = '';
+			discountName = '';
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Nuolaidos pritaikyti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function deleteDiscount(id: number) {
+		if (!order || busy) return;
+		if (!window.confirm('Pašalinti nuolaidą?')) return;
+		busy = true;
+		try {
+			await removeOrderDiscount(order.id, id);
+			pushToast('success', 'Nuolaida pašalinta.');
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Nuolaidos pašalinti nepavyko.');
 		} finally {
 			busy = false;
 		}
@@ -745,6 +820,14 @@
 						{formatMoney(order.totals.total_vat, order.totals.currency)}
 					</dd>
 				</div>
+				{#if Number(order.totals.discounts_gross) > 0}
+					<div class="flex justify-between">
+						<dt class="text-slate-500">Nuolaida</dt>
+						<dd class="font-medium text-emerald-700">
+							−{formatMoney(order.totals.discounts_gross, order.totals.currency)}
+						</dd>
+					</div>
+				{/if}
 				<div
 					class="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900"
 				>
@@ -774,6 +857,46 @@
 					{/if}
 				{/if}
 			</dl>
+			<div class="mt-4 border-t border-slate-100 pt-3">
+				<div class="flex items-center justify-between">
+					<h3 class="text-xs font-semibold tracking-wide text-slate-500 uppercase">Nuolaidos</h3>
+					<button
+						type="button"
+						class="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+						onclick={() => (discountModalOpen = true)}
+						disabled={busy}
+					>
+						+ Pridėti nuolaidą
+					</button>
+				</div>
+				{#if order.discounts.length === 0}
+					<p class="mt-2 text-xs text-slate-400">Nuolaidų nėra.</p>
+				{:else}
+					<ul class="mt-2 space-y-1.5">
+						{#each order.discounts as d}
+							<li class="flex items-center justify-between gap-2 text-sm">
+								<span class="text-slate-700">
+									{d.kind === 'coupon' ? `Kuponas ${d.code}` : d.name || 'Nuolaida'}
+								</span>
+								<span class="flex items-center gap-2">
+									<span class="font-medium text-emerald-700">
+										−{formatMoney(d.gross, order.totals.currency)}
+									</span>
+									<button
+										type="button"
+										class="rounded-md border border-rose-200 px-1.5 py-0.5 text-[11px] text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+										onclick={() => void deleteDiscount(d.id)}
+										disabled={busy}
+										aria-label="Pašalinti nuolaidą"
+									>
+										✕
+									</button>
+								</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
 			{#if order.supplier_notes}
 				<div class="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 ring-1 ring-amber-200">
 					<p class="font-medium">Tiekėjo pastabos</p>
@@ -1029,9 +1152,26 @@
 								</div>
 								<div class="text-xs text-slate-400">{line.warehouse_name}</div>
 							</td>
-							<td class="px-4 py-3 text-right text-slate-800">{line.qty}</td>
-							<td class="px-4 py-3 text-right text-slate-600">
-								{formatMoney(line.unit_gross, order.amount_currency)}
+							<td class="px-4 py-3 text-right">
+								<input
+									type="number"
+									min="0"
+									step="1"
+									value={line.qty}
+									disabled={busy}
+									onchange={(e) => saveLineQty(line, e.currentTarget.value)}
+									class="w-16 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm text-slate-800 focus:border-sky-400 focus:ring-1 focus:ring-sky-200 focus:outline-none disabled:opacity-50"
+								/>
+							</td>
+							<td class="px-4 py-3 text-right">
+								<input
+									type="text"
+									inputmode="decimal"
+									value={line.unit_gross}
+									disabled={busy}
+									onchange={(e) => saveLinePrice(line, e.currentTarget.value)}
+									class="w-20 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm text-slate-800 focus:border-sky-400 focus:ring-1 focus:ring-sky-200 focus:outline-none disabled:opacity-50"
+								/>
 							</td>
 							<td class="px-5 py-3 text-right font-semibold text-slate-900">
 								{formatMoney(line.line_total_gross, order.amount_currency)}
@@ -1043,7 +1183,7 @@
 									onclick={() => void removeLine(line)}
 									disabled={busy}
 								>
-									{line.qty > 1 ? '−1' : 'Šalinti'}
+									Šalinti
 								</button>
 							</td>
 						</tr>
@@ -1688,3 +1828,78 @@
 	{/snippet}
 </Modal>
 
+
+<Modal
+	bind:open={
+		() => discountModalOpen,
+		(v) => {
+			if (!v) discountModalOpen = false;
+		}
+	}
+	title="Pridėti nuolaidą"
+	subtitle={`Užsakymas #${order?.id ?? ''}`}
+>
+	<div class="flex gap-2">
+		{#each [
+			['percent', 'Procentais'],
+			['amount', 'Suma €'],
+			['coupon', 'Kuponas']
+		] as [kind, label]}
+			<button
+				type="button"
+				class="flex-1 rounded-lg border px-3 py-2 text-sm font-medium {discountKind === kind
+					? 'border-sky-500 bg-sky-50 text-sky-700'
+					: 'border-slate-200 text-slate-600 hover:bg-slate-50'}"
+				onclick={() => (discountKind = kind as 'percent' | 'amount' | 'coupon')}
+			>
+				{label}
+			</button>
+		{/each}
+	</div>
+	{#if discountKind === 'coupon'}
+		<label class="mt-4 block text-sm font-medium text-slate-700">
+			Kupono kodas
+			<input
+				class={`${inputClass} mt-1`}
+				bind:value={discountCode}
+				placeholder="Pvz.: sale10"
+			/>
+		</label>
+	{:else}
+		<label class="mt-4 block text-sm font-medium text-slate-700">
+			{discountKind === 'percent' ? 'Nuolaida %' : 'Nuolaida € (su PVM)'}
+			<input
+				class={`${inputClass} mt-1`}
+				bind:value={discountValue}
+				inputmode="decimal"
+				placeholder={discountKind === 'percent' ? 'Pvz.: 10' : 'Pvz.: 5.00'}
+			/>
+		</label>
+	{/if}
+	<label class="mt-3 block text-sm font-medium text-slate-700">
+		Pavadinimas (nebūtina)
+		<input class={`${inputClass} mt-1`} bind:value={discountName} placeholder="Pvz.: lojalumo nuolaida" />
+	</label>
+	<p class="mt-3 text-xs text-slate-400">
+		Nuolaida taikoma prekėms (kaip kuponai). Jei užsakymas apmokėtas — sumos skirtumas
+		automatiškai atsiras „Atsiskaitymų“ bloke kaip permoka.
+	</p>
+	{#snippet footer()}
+		<button
+			type="button"
+			class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+			onclick={() => (discountModalOpen = false)}
+			disabled={busy}
+		>
+			Atšaukti
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
+			onclick={() => void saveDiscount()}
+			disabled={busy || (discountKind === 'coupon' ? !discountCode.trim() : !discountValue.trim())}
+		>
+			{busy ? 'Saugoma…' : 'Pritaikyti'}
+		</button>
+	{/snippet}
+</Modal>
