@@ -96,6 +96,8 @@ export type OpsOrderTotals = {
 	total_vat: string;
 	total_gross: string;
 	currency: string;
+	paid_gross: string;
+	balance_due: string;
 };
 
 export type OpsAuditEvent = {
@@ -178,6 +180,8 @@ export type OpsShipmentRow = {
 export type OpsSurcharge = {
 	id: number;
 	order_id: number;
+	direction: 'charge' | 'refund';
+	source: 'auto' | 'manual';
 	amount_gross: string;
 	currency: string;
 	method: string;
@@ -205,6 +209,8 @@ export type OpsOrderShippingUpdateResult = {
 	shipping_gross: string;
 	price_delta_gross: string;
 	pickup_point_name: string;
+	new_shipment_id: number | null;
+	balance_due: string;
 };
 
 export type OpsInventoryItem = {
@@ -907,4 +913,38 @@ export function mergeOrders(
 		primary_order_id: primaryOrderId,
 		merged_order_ids: mergedOrderIds
 	});
+}
+
+export function addOrderLine(
+	orderId: number | string,
+	payload: { variant_id: number; qty: number; offer_id?: number }
+): Promise<OpsOrderDetail> {
+	return post<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/lines`, payload);
+}
+
+export function updateOrderLine(
+	orderId: number | string,
+	lineId: number,
+	payload: { qty: number }
+): Promise<OpsOrderDetail> {
+	return patch<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/lines/${lineId}`, payload);
+}
+
+export function collectSurcharge(
+	surchargeId: number,
+	payload: { method: 'montonio' | 'bank_transfer'; send_email?: boolean }
+): Promise<OpsSurcharge> {
+	return post<OpsSurcharge>(`/api/v1/ops/surcharges/${surchargeId}/collect`, payload);
+}
+
+export function markSurchargePaid(surchargeId: number): Promise<OpsSurcharge> {
+	return post<OpsSurcharge>(`/api/v1/ops/surcharges/${surchargeId}/mark-paid`);
+}
+
+export function resolveSurcharge(surchargeId: number): Promise<OpsSurcharge> {
+	return post<OpsSurcharge>(`/api/v1/ops/surcharges/${surchargeId}/resolve`);
+}
+
+export function cancelSurcharge(surchargeId: number): Promise<OpsSurcharge> {
+	return post<OpsSurcharge>(`/api/v1/ops/surcharges/${surchargeId}/cancel`);
 }

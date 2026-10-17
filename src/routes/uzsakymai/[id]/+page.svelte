@@ -18,22 +18,29 @@
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import {
 		ApiError,
+		addOrderLine,
+		cancelSurcharge,
+		collectSurcharge,
 		createShipment,
-		createSurcharge,
 		fetchLockers,
 		fetchOrderDetail,
 		generateLabelForShipment,
 		generateShipmentLabel,
 		markShipmentShipped,
+		markSurchargePaid,
 		mediaUrl,
 		orderAction,
 		paymentAction,
 		refreshShipmentTracking,
+		resolveSurcharge,
+		updateOrderLine,
 		updateOrderShipping,
 		updateShipment,
 		type OpsLockerOption,
 		type OpsOrderDetail,
-		type OpsShipmentRow
+		type OpsOrderLine,
+		type OpsShipmentRow,
+		type OpsSurcharge
 	} from '#lib/api/client';
 	import { formatDate, formatDateTime, formatMoney } from '#lib/format';
 	import { eventKindLabel, eventNameLabel, shippingMethodLabel } from '#lib/labels';
@@ -75,11 +82,13 @@
 	let shNotes = $state('');
 	let shStatus = $state('');
 
-	let surchargeOpen = $state(false);
-	let surchargeAmount = $state('');
-	let surchargeReason = $state('');
-	let surchargeMethod = $state<'montonio' | 'bank_transfer'>('montonio');
-	let surchargeSendEmail = $state(true);
+	let lineModalOpen = $state(false);
+	let lineVariantId = $state('');
+	let lineQty = $state(1);
+
+	let collectModal = $state<OpsSurcharge | null>(null);
+	let collectMethod = $state<'montonio' | 'bank_transfer'>('montonio');
+	let collectSendEmail = $state(true);
 
 	const SHIPPING_METHODS = [
 		{ code: 'dpd_locker', label: 'DPD paštomatas' },
@@ -121,16 +130,13 @@
 				pickup_locker_id: shippingLockerId
 			});
 			const delta = Number(res.price_delta_gross);
-			if (delta > 0) {
-				pushToast(
-					'success',
-					`Pristatymas pakeistas. Kainos skirtumas +${res.price_delta_gross} ${order.totals.currency} — galima sukurti priemoką.`
-				);
-				surchargeAmount = res.price_delta_gross;
-				surchargeReason = 'Pakeistas pristatymo būdas';
-			} else {
-				pushToast('success', 'Pristatymas pakeistas.');
-			}
+			const balance = Number(res.balance_due);
+			let msg = 'Pristatymas pakeistas.';
+			if (res.new_shipment_id) msg += ` Sukurta nauja siunta #${res.new_shipment_id}.`;
+			if (delta !== 0) msg += ` Kainos skirtumas ${delta > 0 ? '+' : ''}${res.price_delta_gross} ${order.totals.currency}.`;
+			if (balance > 0) msg += ' Priemoka įtraukta į suvestinę.';
+			else if (balance < 0) msg += ' Permoka įtraukta į suvestinę.';
+			pushToast('success', msg);
 			shippingModalOpen = false;
 			await load();
 		} catch (e) {
@@ -196,21 +202,74 @@
 		}
 	}
 
-	async function submitSurcharge() {
+	async function submitAddLine() {
 		if (!order || busy) return;
+		const variantId = Number(lineVariantId);
+		if (!variantId || lineQty < 1) {
+			pushToast('error', 'Įveskite varianto ID ir kiekį.');
+			return;
+		}
 		busy = true;
 		try {
-			await createSurcharge(order.id, {
-				amount_gross: surchargeAmount,
-				reason: surchargeReason,
-				method: surchargeMethod,
-				send_email: surchargeSendEmail
-			});
-			pushToast('success', 'Priemoka sukurta.');
-			surchargeOpen = false;
+			await addOrderLine(order.id, { variant_id: variantId, qty: lineQty });
+			pushToast('success', 'Prekė pridėta.');
+			lineModalOpen = false;
+			lineVariantId = '';
+			lineQty = 1;
 			await load();
 		} catch (e) {
-			pushToast('error', e instanceof ApiError ? e.message : 'Priemokos sukurti nepavyko.');
+			pushToast('error', e instanceof ApiError ? e.message : 'Prekės pridėti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function removeLine(line: OpsOrderLine) {
+		if (!order || busy) return;
+		const label = line.name || line.sku;
+		const nextQty = line.qty - 1;
+		if (!window.confirm(nextQty > 0 ? `Sumažinti „${label}“ kiekį iki ${nextQty}?` : `Pašalinti „${label}“ iš užsakymo?`)) return;
+		busy = true;
+		try {
+			await updateOrderLine(order.id, line.order_line_id, { qty: Math.max(0, nextQty) });
+			pushToast('success', nextQty > 0 ? 'Kiekis sumažintas.' : 'Eilutė pašalinta.');
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Eilutės pakeisti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function submitCollect() {
+		if (!collectModal || busy) return;
+		busy = true;
+		try {
+			await collectSurcharge(collectModal.id, {
+				method: collectMethod,
+				send_email: collectSendEmail
+			});
+			pushToast('success', 'Priemoka išsiųsta klientui.');
+			collectModal = null;
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Priemokos išsiųsti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function surchargeAction(s: OpsSurcharge, action: 'paid' | 'resolve' | 'cancel') {
+		if (busy) return;
+		busy = true;
+		try {
+			if (action === 'paid') await markSurchargePaid(s.id);
+			else if (action === 'resolve') await resolveSurcharge(s.id);
+			else await cancelSurcharge(s.id);
+			pushToast('success', 'Atnaujinta.');
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Veiksmas nepavyko.');
 		} finally {
 			busy = false;
 		}
@@ -492,16 +551,13 @@
 				>
 					Keisti vežėją / paštomatą
 				</button>
-				<button
-					type="button"
-					class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-					onclick={() => {
-						surchargeOpen = true;
-					}}
-					disabled={busy}
-				>
-					Priemoka
-				</button>
+				{#if order.surcharges?.some((s) => s.status === 'pending')}
+					<span
+						class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700"
+					>
+						Yra laukiančių atsiskaitymų
+					</span>
+				{/if}
 			</div>
 		</section>
 
@@ -533,6 +589,28 @@
 					<dt>Iš viso</dt>
 					<dd>{formatMoney(order.totals.total_gross, order.totals.currency)}</dd>
 				</div>
+				{#if Number(order.totals.paid_gross) > 0}
+					<div class="flex justify-between">
+						<dt class="text-slate-500">Sumokėta</dt>
+						<dd class="font-medium text-slate-800">
+							{formatMoney(order.totals.paid_gross, order.totals.currency)}
+						</dd>
+					</div>
+					{#if Number(order.totals.balance_due) !== 0}
+						<div class="flex justify-between">
+							<dt class="text-slate-500">
+								{Number(order.totals.balance_due) > 0 ? 'Priemoka' : 'Permoka'}
+							</dt>
+							<dd
+								class="font-semibold {Number(order.totals.balance_due) > 0
+									? 'text-amber-700'
+									: 'text-emerald-700'}"
+							>
+								{formatMoney(order.totals.balance_due, order.totals.currency)}
+							</dd>
+						</div>
+					{/if}
+				{/if}
 			</dl>
 			{#if order.supplier_notes}
 				<div class="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 ring-1 ring-amber-200">
@@ -641,7 +719,7 @@
 	{#if order.surcharges && order.surcharges.length > 0}
 		<section class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 			<div class="border-b border-slate-200 px-5 py-3">
-				<h2 class="text-base font-semibold text-slate-900">Priemokos</h2>
+				<h2 class="text-base font-semibold text-slate-900">Atsiskaitymai</h2>
 			</div>
 			<div class="divide-y divide-slate-100">
 				{#each order.surcharges as s}
@@ -650,12 +728,27 @@
 							<span class="font-medium text-slate-900">
 								{formatMoney(s.amount_gross, s.currency)}
 							</span>
-							<span class="ml-2 text-sm text-slate-500">
-								{s.method === 'montonio' ? 'Montonio nuoroda' : 'Bankinis pavedimas'}
+							<span
+								class="ml-2 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {s.direction ===
+								'refund'
+									? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+									: 'bg-amber-50 text-amber-700 ring-amber-200'}"
+							>
+								{s.direction === 'refund' ? 'Permoka' : 'Priemoka'}
 							</span>
+							{#if s.method}
+								<span class="ml-2 text-sm text-slate-500">
+									{s.method === 'montonio' ? 'Montonio nuoroda' : 'Bankinis pavedimas'}
+								</span>
+							{:else}
+								<span class="ml-2 text-sm text-slate-400">nepasirinktas būdas</span>
+							{/if}
+							{#if s.source === 'auto'}
+								<span class="ml-1 text-xs text-slate-400">(auto)</span>
+							{/if}
 							{#if s.reason}<p class="text-xs text-slate-400">{s.reason}</p>{/if}
 						</div>
-						<div class="flex items-center gap-3">
+						<div class="flex items-center gap-2">
 							<StatusBadge kind="payment" value={s.status} />
 							{#if s.payment_url}
 								<a
@@ -667,6 +760,47 @@
 									Mokėjimo nuoroda
 								</a>
 							{/if}
+							{#if s.status === 'pending'}
+								{#if s.direction === 'charge'}
+									<button
+										type="button"
+										class="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+										onclick={() => {
+											collectModal = s;
+											collectMethod = 'montonio';
+											collectSendEmail = true;
+										}}
+										disabled={busy}
+									>
+										Išsiųsti klientui
+									</button>
+									<button
+										type="button"
+										class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+										onclick={() => void surchargeAction(s, 'paid')}
+										disabled={busy}
+									>
+										Sumokėta
+									</button>
+								{:else}
+									<button
+										type="button"
+										class="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+										onclick={() => void surchargeAction(s, 'resolve')}
+										disabled={busy}
+									>
+										Grąžinta
+									</button>
+								{/if}
+								<button
+									type="button"
+									class="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+									onclick={() => void surchargeAction(s, 'cancel')}
+									disabled={busy}
+								>
+									Atšaukti
+								</button>
+							{/if}
 						</div>
 					</div>
 				{/each}
@@ -676,10 +810,18 @@
 
 	<!-- Prekės -->
 	<section class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-		<div class="border-b border-slate-200 px-5 py-3">
+		<div class="flex items-center justify-between border-b border-slate-200 px-5 py-3">
 			<h2 class="text-base font-semibold text-slate-900">
 				Prekės <span class="text-slate-400">({order.matched_lines.length})</span>
 			</h2>
+			<button
+				type="button"
+				class="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+				onclick={() => (lineModalOpen = true)}
+				disabled={busy}
+			>
+				+ Pridėti prekę
+			</button>
 		</div>
 		<div class="overflow-x-auto">
 			<table class="min-w-full text-left text-sm">
@@ -692,6 +834,7 @@
 						<th class="px-4 py-2.5 text-right font-medium">Kiekis</th>
 						<th class="px-4 py-2.5 text-right font-medium">Vnt. kaina</th>
 						<th class="px-5 py-2.5 text-right font-medium">Suma</th>
+						<th class="px-4 py-2.5 text-right font-medium"></th>
 					</tr>
 				</thead>
 				<tbody>
@@ -721,6 +864,16 @@
 							</td>
 							<td class="px-5 py-3 text-right font-semibold text-slate-900">
 								{formatMoney(line.line_total_gross, order.amount_currency)}
+							</td>
+							<td class="px-4 py-3 text-right">
+								<button
+									type="button"
+									class="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+									onclick={() => void removeLine(line)}
+									disabled={busy}
+								>
+									{line.qty > 1 ? '−1' : 'Šalinti'}
+								</button>
 							</td>
 						</tr>
 					{/each}
@@ -1013,35 +1166,36 @@
 	{/snippet}
 </Modal>
 
-<!-- Priemoka -->
+<!-- Pridėti prekę -->
 <Modal
 	bind:open={
-		() => surchargeOpen,
+		() => lineModalOpen,
 		(v) => {
-			if (!v) surchargeOpen = false;
+			if (!v) lineModalOpen = false;
 		}
 	}
-	title="Priemoka klientui"
-	subtitle={`Užsakymas #${order?.id ?? ''}`}
+	title="Pridėti prekę"
+	subtitle={`Užsakymas #${order?.id ?? ''} — suma perskaičiuojama automatiškai`}
 >
-	<label class="block text-sm font-medium text-slate-700" for="sc-amount">Suma (su PVM)</label>
-	<input id="sc-amount" class={`${inputClass} mt-1`} placeholder="Pvz.: 3.63" bind:value={surchargeAmount} />
-	<label class="mt-3 block text-sm font-medium text-slate-700" for="sc-reason">Priežastis</label>
-	<input id="sc-reason" class={`${inputClass} mt-1`} bind:value={surchargeReason} />
-	<label class="mt-3 block text-sm font-medium text-slate-700" for="sc-method">Apmokėjimo būdas</label>
-	<select id="sc-method" class={`${inputClass} mt-1`} bind:value={surchargeMethod}>
-		<option value="montonio">Montonio mokėjimo nuoroda</option>
-		<option value="bank_transfer">Paprastas pavedimas</option>
-	</select>
-	<label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
-		<input type="checkbox" bind:checked={surchargeSendEmail} class="rounded border-slate-300" />
-		Išsiųsti laišką klientui
+	<label class="block text-sm font-medium text-slate-700" for="al-variant">
+		Varianto ID
 	</label>
+	<input
+		id="al-variant"
+		class={`${inputClass} mt-1`}
+		placeholder="Pvz.: 1234"
+		bind:value={lineVariantId}
+	/>
+	<label class="mt-3 block text-sm font-medium text-slate-700" for="al-qty">Kiekis</label>
+	<input id="al-qty" type="number" min="1" class={`${inputClass} mt-1`} bind:value={lineQty} />
+	<p class="mt-3 text-xs text-slate-500">
+		Jei užsakymas apmokėtas — skirtumas automatiškai atsiras suvestinėje kaip priemoka.
+	</p>
 	{#snippet footer()}
 		<button
 			type="button"
 			class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-			onclick={() => (surchargeOpen = false)}
+			onclick={() => (lineModalOpen = false)}
 			disabled={busy}
 		>
 			Atšaukti
@@ -1049,10 +1203,57 @@
 		<button
 			type="button"
 			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
-			onclick={() => void submitSurcharge()}
-			disabled={busy || !surchargeAmount}
+			onclick={() => void submitAddLine()}
+			disabled={busy || !lineVariantId}
 		>
-			{busy ? 'Saugoma…' : 'Sukurti priemoką'}
+			{busy ? 'Saugoma…' : 'Pridėti'}
+		</button>
+	{/snippet}
+</Modal>
+
+<!-- Priemokos išsiuntimas -->
+<Modal
+	bind:open={
+		() => collectModal !== null,
+		(v) => {
+			if (!v) collectModal = null;
+		}
+	}
+	title="Priemokos išsiuntimas"
+	subtitle={`Užsakymas #${order?.id ?? ''} — ${collectModal ? formatMoney(collectModal.amount_gross, collectModal.currency) : ''}`}
+>
+	{#if collectModal}
+		{#if collectModal.reason}
+			<p class="mb-3 text-sm text-slate-600">{collectModal.reason}</p>
+		{/if}
+		<label class="block text-sm font-medium text-slate-700" for="cl-method">
+			Apmokėjimo būdas
+		</label>
+		<select id="cl-method" class={`${inputClass} mt-1`} bind:value={collectMethod}>
+			<option value="montonio">Montonio mokėjimo nuoroda</option>
+			<option value="bank_transfer">Paprastas pavedimas</option>
+		</select>
+		<label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+			<input type="checkbox" bind:checked={collectSendEmail} class="rounded border-slate-300" />
+			Išsiųsti laišką klientui
+		</label>
+	{/if}
+	{#snippet footer()}
+		<button
+			type="button"
+			class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+			onclick={() => (collectModal = null)}
+			disabled={busy}
+		>
+			Atšaukti
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
+			onclick={() => void submitCollect()}
+			disabled={busy}
+		>
+			{busy ? 'Siunčiama…' : 'Išsiųsti'}
 		</button>
 	{/snippet}
 </Modal>
