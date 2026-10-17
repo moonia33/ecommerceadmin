@@ -35,6 +35,13 @@
 		paymentAction,
 		refreshShipmentTracking,
 		removeOrderDiscount,
+		cancelInvoice,
+		createCreditInvoice,
+		fetchInvoiceDetail,
+		fetchOrderInvoices,
+		invoicePdfUrl,
+		issueOrderInvoice,
+		resendInvoice,
 		resolveSurcharge,
 		searchVariants,
 		updateOrderAddress,
@@ -43,6 +50,7 @@
 		updateOrderSupplier,
 		updateShipment,
 		type OpsCustomerAddress,
+		type OpsInvoice,
 		type OpsLockerOption,
 		type OpsOrderDetail,
 		type OpsOrderLine,
@@ -376,6 +384,101 @@
 		}
 	}
 
+	// --- Invoices / documents ---
+	let invoices = $state<OpsInvoice[]>([]);
+	let creditModalOpen = $state(false);
+	let creditInvoiceId = $state<number | null>(null);
+	let creditLines = $state<{ invoice_line_id: number; name: string; qty: number; max: number }[]>([]);
+	let creditSendEmail = $state(false);
+
+	async function doIssueInvoice() {
+		if (!order || busy) return;
+		busy = true;
+		try {
+			await issueOrderInvoice(order.id);
+			pushToast('success', 'Sąskaita išrašyta.');
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Sąskaitos išrašyti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function doCancelInvoice(inv: OpsInvoice) {
+		if (busy || !window.confirm(`Atšaukti ${inv.number}? Dokumentas liks auditui.`)) return;
+		busy = true;
+		try {
+			await cancelInvoice(inv.id);
+			pushToast('success', 'Sąskaita atšaukta.');
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Atšaukti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function doResendInvoice(inv: OpsInvoice) {
+		if (busy) return;
+		busy = true;
+		try {
+			await resendInvoice(inv.id);
+			pushToast('success', `Sąskaita ${inv.number} išsiųsta el. paštu.`);
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Išsiųsti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function openCreditModal(inv: OpsInvoice) {
+		creditInvoiceId = inv.id;
+		creditSendEmail = false;
+		creditLines = [];
+		try {
+			const detail = await fetchInvoiceDetail(inv.id);
+			creditLines = detail.lines.map((l) => ({
+				invoice_line_id: l.id,
+				name: l.name,
+				qty: l.qty - l.credited_qty,
+				max: l.qty - l.credited_qty
+			}));
+			creditModalOpen = true;
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Sąskaitos įkelti nepavyko.');
+		}
+	}
+
+	async function saveCredit() {
+		if (busy || creditInvoiceId == null) return;
+		const selected = creditLines.filter((l) => l.qty > 0);
+		const allFull =
+			creditLines.length > 0 && creditLines.every((l) => l.qty === l.max);
+		if (selected.length === 0 && !allFull) {
+			pushToast('error', 'Pasirinkite kredituojamas eilutes.');
+			return;
+		}
+		busy = true;
+		try {
+			const inv = await createCreditInvoice(creditInvoiceId, {
+				lines: allFull ? undefined : selected.map((l) => ({
+					invoice_line_id: l.invoice_line_id,
+					qty: l.qty
+				})),
+				send_email: creditSendEmail
+			});
+			pushToast('success', `Kreditinė ${inv.number} išrašyta.`);
+			creditModalOpen = false;
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Kreditinės išrašyti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function openAddressModal() {
 		if (!order) return;
 		addrFullName = order.shipping_address.full_name;
@@ -510,6 +613,7 @@
 		loading = true;
 		try {
 			order = await fetchOrderDetail(orderId);
+			invoices = await fetchOrderInvoices(order.id).catch(() => [] as OpsInvoice[]);
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Nepavyko įkelti užsakymo.');
 		} finally {
@@ -902,6 +1006,92 @@
 					<p class="font-medium">Tiekėjo pastabos</p>
 					<p class="mt-1">{order.supplier_notes}</p>
 				</div>
+			{/if}
+		</section>
+
+		<!-- Dokumentai -->
+		<section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+			<div class="flex items-center justify-between">
+				<h2 class="text-sm font-semibold tracking-wide text-slate-500 uppercase">Dokumentai</h2>
+				{#if !invoices.some((i) => i.kind === 'sales' && i.status === 'issued')}
+					<button
+						type="button"
+						class="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+						onclick={() => void doIssueInvoice()}
+						disabled={busy}
+					>
+						Išrašyti sąskaitą
+					</button>
+				{/if}
+			</div>
+			{#if invoices.length === 0}
+				<p class="mt-3 text-xs text-slate-400">
+					Sąskaitų nėra. Sąskaita išrašoma automatiškai, kai užsakymas pristatomas,
+					arba rankiniu būdu — mygtuku aukščiau.
+				</p>
+			{:else}
+				<ul class="mt-3 divide-y divide-slate-100">
+					{#each invoices as inv}
+						<li class="py-2.5">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<div>
+									<span class="font-medium text-slate-900">{inv.number}</span>
+									<span
+										class="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium {inv.kind ===
+										'credit'
+											? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+											: 'bg-sky-50 text-sky-700 ring-1 ring-sky-200'}"
+									>
+										{inv.kind === 'credit' ? 'Kreditinė' : 'Sąskaita'}
+									</span>
+									{#if inv.status === 'cancelled'}
+										<span
+											class="ml-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 ring-1 ring-rose-200"
+											>Atšaukta</span
+										>
+									{/if}
+								</div>
+								<span class="text-sm font-semibold text-slate-800">
+									{formatMoney(inv.total_gross, inv.currency)}
+								</span>
+							</div>
+							<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+								<span>{formatDate(inv.issue_date)}</span>
+								{#if inv.credit_of_number}<span>→ {inv.credit_of_number}</span>{/if}
+								{#if inv.emailed_at}<span>· išsiųsta {formatDateTime(inv.emailed_at)}</span>{/if}
+								<span class="flex-1"></span>
+								<a
+									href={invoicePdfUrl(inv.id)}
+									target="_blank"
+									class="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
+									>PDF</a
+								>
+								<button
+									type="button"
+									class="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+									onclick={() => void doResendInvoice(inv)}
+									disabled={busy}>El. paštu</button
+								>
+								{#if inv.kind === 'sales' && inv.status === 'issued'}
+									<button
+										type="button"
+										class="rounded-md border border-amber-200 px-2 py-0.5 text-[11px] text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+										onclick={() => void openCreditModal(inv)}
+										disabled={busy}>Kredituoti</button
+									>
+								{/if}
+								{#if inv.status === 'issued'}
+									<button
+										type="button"
+										class="rounded-md border border-rose-200 px-2 py-0.5 text-[11px] text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+										onclick={() => void doCancelInvoice(inv)}
+										disabled={busy}>Atšaukti</button
+									>
+								{/if}
+							</div>
+						</li>
+					{/each}
+				</ul>
 			{/if}
 		</section>
 	</div>
@@ -1900,6 +2090,64 @@
 			disabled={busy || (discountKind === 'coupon' ? !discountCode.trim() : !discountValue.trim())}
 		>
 			{busy ? 'Saugoma…' : 'Pritaikyti'}
+		</button>
+	{/snippet}
+</Modal>
+
+<Modal
+	bind:open={
+		() => creditModalOpen,
+		(v) => {
+			if (!v) creditModalOpen = false;
+		}
+	}
+	title="Kreditinė sąskaita"
+	subtitle="Pasirinkite kredituojamas eilutes (viskas = pilnas kreditas)"
+>
+	{#if creditLines.length === 0}
+		<p class="text-sm text-slate-500">Sąskaita neturi eilučių.</p>
+	{:else}
+		<ul class="space-y-2">
+			{#each creditLines as l, i}
+				<li class="flex items-center justify-between gap-3 text-sm">
+					<span class="flex-1 text-slate-700">{l.name}</span>
+					{#if l.max <= 0}
+						<span class="text-xs text-slate-400">Jau kredituota</span>
+					{:else}
+						<span class="text-xs text-slate-400">iš {l.max}</span>
+						<input
+							type="number"
+							min="0"
+							max={l.max}
+							step="1"
+							bind:value={creditLines[i].qty}
+							class="w-16 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm focus:border-sky-400 focus:ring-1 focus:ring-sky-200 focus:outline-none"
+						/>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+	{/if}
+	<label class="mt-4 flex items-center gap-2 text-sm text-slate-700">
+		<input type="checkbox" bind:checked={creditSendEmail} class="rounded border-slate-300" />
+		Išsiųsti klientui el. paštu
+	</label>
+	{#snippet footer()}
+		<button
+			type="button"
+			class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+			onclick={() => (creditModalOpen = false)}
+			disabled={busy}
+		>
+			Atšaukti
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
+			onclick={() => void saveCredit()}
+			disabled={busy || creditLines.length === 0}
+		>
+			{busy ? 'Išrašoma…' : 'Išrašyti kreditinę'}
 		</button>
 	{/snippet}
 </Modal>

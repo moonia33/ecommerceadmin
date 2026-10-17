@@ -1003,6 +1003,68 @@ export function updateOrderLine(
 	return patch<OpsOrderDetail>(`/api/v1/ops/orders/${orderId}/lines/${lineId}`, payload);
 }
 
+export type OpsInvoiceLine = {
+	id: number;
+	line_type: string;
+	name: string;
+	sku: string;
+	qty: number;
+	unit_net: string;
+	vat_rate: string;
+	total_gross: string;
+	credited_qty: number;
+};
+
+export type OpsInvoice = {
+	id: number;
+	number: string;
+	kind: string;
+	status: string;
+	order_id: number;
+	issue_date: string;
+	currency: string;
+	total_gross: string;
+	language_code: string;
+	emailed_at: string;
+	has_pdf: boolean;
+	credit_of_number: string;
+};
+
+export type OpsInvoiceDetail = OpsInvoice & {
+	lines: OpsInvoiceLine[];
+};
+
+export function fetchOrderInvoices(orderId: number | string): Promise<OpsInvoice[]> {
+	return get<OpsInvoice[]>('/api/v1/ops/invoices', { order_id: orderId });
+}
+
+export function fetchInvoiceDetail(invoiceId: number): Promise<OpsInvoiceDetail> {
+	return get<OpsInvoiceDetail>(`/api/v1/ops/invoices/${invoiceId}`);
+}
+
+export function issueOrderInvoice(orderId: number | string): Promise<OpsInvoice> {
+	return post<OpsInvoice>(`/api/v1/ops/orders/${orderId}/invoice`);
+}
+
+export function createCreditInvoice(
+	invoiceId: number,
+	payload: { lines?: { invoice_line_id: number; qty: number }[]; send_email?: boolean }
+): Promise<OpsInvoice> {
+	return post<OpsInvoice>(`/api/v1/ops/invoices/${invoiceId}/credit`, payload);
+}
+
+export function cancelInvoice(invoiceId: number): Promise<OpsInvoice> {
+	return post<OpsInvoice>(`/api/v1/ops/invoices/${invoiceId}/cancel`);
+}
+
+export function resendInvoice(invoiceId: number): Promise<unknown> {
+	return post(`/api/v1/ops/invoices/${invoiceId}/resend`);
+}
+
+export function invoicePdfUrl(invoiceId: number): string {
+	return `${getBaseUrl()}/api/v1/ops/invoices/${invoiceId}/pdf`;
+}
+
 export function addOrderDiscount(
 	orderId: number | string,
 	payload: { kind: 'percent' | 'amount' | 'coupon'; value?: string; code?: string; name?: string }
