@@ -976,14 +976,16 @@
 			<h2 class="text-base font-semibold text-slate-900">
 				Prekės <span class="text-slate-400">({order.matched_lines.length})</span>
 			</h2>
-			<button
-				type="button"
-				class="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-				onclick={openLineModal}
-				disabled={busy}
-			>
-				+ Pridėti prekę
-			</button>
+			<div class="flex items-center gap-2">
+				<button
+					type="button"
+					class="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+					onclick={openLineModal}
+					disabled={busy}
+				>
+					+ Pridėti prekę
+				</button>
+			</div>
 		</div>
 		<div class="overflow-x-auto">
 			<table class="min-w-full text-left text-sm">
@@ -1694,3 +1696,4 @@
 		</button>
 	{/snippet}
 </Modal>
+

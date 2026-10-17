@@ -38,6 +38,7 @@
 	let dateTo = $state('');
 	let productQ = $state('');
 	let supplierCode = $state('');
+	let supplierStatus = $state('');
 	let manufacturerQ = $state('');
 	let remoteOnly = $state(false);
 	let showAdvanced = $state(false);
@@ -111,6 +112,7 @@
 			date_to: dateTo,
 			product_q: productQ.trim(),
 			supplier_code: supplierCode.trim(),
+			supplier_status: supplierStatus,
 			manufacturer_q: manufacturerQ.trim(),
 			remote_only: remoteOnly ? 'true' : '',
 			page: pageNum,
@@ -146,6 +148,7 @@
 		dateTo = '';
 		productQ = '';
 		supplierCode = '';
+		supplierStatus = '';
 		manufacturerQ = '';
 		remoteOnly = false;
 		void load(1);
@@ -302,6 +305,14 @@
 				bind:value={manufacturerQ}
 				onkeydown={(e) => e.key === 'Enter' && applyFilters()}
 			/>
+			<select class={inputClass} bind:value={supplierStatus} aria-label="Tiekėjo rezervacija">
+				<option value="">Tiekėjo rezervacija: visos</option>
+				<option value="pending">Laukiama tiekėjo</option>
+				<option value="reserved">Rezervuota pas tiekėją</option>
+				<option value="not_needed">Nereikalinga</option>
+				<option value="failed">Nepavyko rezervuoti</option>
+				<option value="cancelled">Atšaukta</option>
+			</select>
 		</div>
 		<label class="mt-3 inline-flex items-center gap-2 text-sm text-slate-600">
 			<input type="checkbox" class="h-4 w-4 rounded border-slate-300" bind:checked={remoteOnly} />
