@@ -9,13 +9,9 @@
 	import {
 		ApiError,
 		fetchShipmentRegistry,
-		fetchShipments,
 		generateLabelForShipment,
-		generateShipmentLabel,
-		generateShipmentLabelsBulk,
-		markShipmentShipped,
 		refreshShipmentTracking,
-		type OpsShipment,
+		updateShipment,
 		type OpsShipmentRow
 	} from '#lib/api/client';
 	import { formatDateTime } from '#lib/format';
@@ -25,40 +21,26 @@
 	const PAGE_SIZE = 25;
 
 	let loading = $state(true);
-	let shipments = $state<OpsShipment[]>([]);
+	let shipments = $state<OpsShipmentRow[]>([]);
 	let total = $state(0);
 	let page = $state(1);
 	let selected = $state<Set<number>>(new Set());
 	let busyId = $state<number | null>(null);
 	let bulkBusy = $state(false);
 
-	let deliveryStatus = $state('');
+	let status = $state('');
+	let kind = $state('');
 	let shippingMethod = $state('');
 	let trackingQ = $state('');
-	let registry = $state<OpsShipmentRow[]>([]);
-	let registryLoading = $state(false);
-
-	async function searchRegistry() {
-		if (!trackingQ.trim()) {
-			registry = [];
-			return;
-		}
-		registryLoading = true;
-		try {
-			registry = await fetchShipmentRegistry({ tracking: trackingQ.trim() });
-		} catch (e) {
-			pushToast('error', e instanceof ApiError ? e.message : 'Paieška nepavyko.');
-		} finally {
-			registryLoading = false;
-		}
-	}
 
 	async function load(pageNum = page) {
 		loading = true;
 		try {
-			const res = await fetchShipments({
-				status: deliveryStatus,
+			const res = await fetchShipmentRegistry({
+				status,
+				kind,
 				shipping_method: shippingMethod.trim(),
+				tracking: trackingQ.trim(),
 				page: pageNum,
 				page_size: PAGE_SIZE
 			});
@@ -82,12 +64,12 @@
 
 	function toggleSelectAll() {
 		if (selected.size === shipments.length) selected = new Set();
-		else selected = new Set(shipments.map((s) => s.order_id));
+		else selected = new Set(shipments.map((s) => s.id));
 	}
 
-	async function runFor(orderId: number, fn: () => Promise<{ message?: string }>) {
+	async function runFor(shipmentId: number, fn: () => Promise<{ message?: string }>) {
 		if (busyId !== null) return;
-		busyId = orderId;
+		busyId = shipmentId;
 		try {
 			const res = await fn();
 			pushToast('success', res.message || 'Atlikta.');
@@ -102,20 +84,24 @@
 	async function bulkLabels() {
 		if (bulkBusy || selected.size === 0) return;
 		bulkBusy = true;
-		try {
-			const job = await generateShipmentLabelsBulk([...selected]);
-			const failed = (job.result_payload?.failed as unknown[] | undefined)?.length ?? 0;
-			if (job.status === 'success' && failed === 0) {
-				pushToast('success', `Lipdukai sugeneruoti (${selected.size}).`);
-			} else {
-				pushToast('error', `${job.error_message || 'Dalį lipdukų sugeneruoti nepavyko.'}`);
+		const ids = [...selected];
+		let ok = 0;
+		let failed = 0;
+		for (const id of ids) {
+			try {
+				await generateLabelForShipment(id);
+				ok += 1;
+			} catch {
+				failed += 1;
 			}
-			await load();
-		} catch (e) {
-			pushToast('error', e instanceof ApiError ? e.message : 'Masinė generacija nepavyko.');
-		} finally {
-			bulkBusy = false;
 		}
+		if (failed === 0) {
+			pushToast('success', `Lipdukai sugeneruoti (${ok}).`);
+		} else {
+			pushToast('error', `Sugeneruota ${ok}, nepavyko ${failed}.`);
+		}
+		await load();
+		bulkBusy = false;
 	}
 
 	onMount(() => void load(1));
@@ -139,16 +125,22 @@
 </PageHeader>
 
 <section class="mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-	<select class={selectClass} bind:value={deliveryStatus} aria-label="Pristatymo būsena">
-		<option value="">Visos pristatymo būsenos</option>
-		<option value="pending">Nepraruošta</option>
-		<option value="awaiting_stock">Laukia prekės</option>
-		<option value="packing">Komplektuojama</option>
+	<select class={selectClass} bind:value={kind} aria-label="Siuntos tipas">
+		<option value="">Visi tipai</option>
+		<option value="outbound">Siuntimas</option>
+		<option value="return">Grąžinimas</option>
+	</select>
+	<select class={selectClass} bind:value={status} aria-label="Siuntos būsena">
+		<option value="">Visos būsenos</option>
+		<option value="pending">Neparuošta</option>
 		<option value="packed">Supakuota</option>
 		<option value="picked_up">Perduota vežėjui</option>
 		<option value="in_transit">Kelyje</option>
 		<option value="at_pickup_point">Atvyko į tašką</option>
 		<option value="delivered">Pristatyta</option>
+		<option value="returning">Grąžinama siuntėjui</option>
+		<option value="returned">Grąžinta siuntėjui</option>
+		<option value="cancelled">Atšaukta</option>
 		<option value="error">Klaida</option>
 	</select>
 	<input
@@ -159,17 +151,14 @@
 	/>
 	<input
 		class={inputClass}
-		placeholder="Sekimo / siuntos nr."
+		placeholder="Sekimo nr."
 		bind:value={trackingQ}
-		onkeydown={(e) => e.key === 'Enter' && void searchRegistry()}
+		onkeydown={(e) => e.key === 'Enter' && load(1)}
 	/>
 	<button
 		type="button"
 		class="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500"
-		onclick={() => {
-			if (trackingQ.trim()) void searchRegistry();
-			else void load(1);
-		}}
+		onclick={() => void load(1)}
 	>
 		<Search size={15} /> Ieškoti
 	</button>
@@ -177,71 +166,16 @@
 		type="button"
 		class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
 		onclick={() => {
-			deliveryStatus = '';
+			status = '';
+			kind = '';
 			shippingMethod = '';
 			trackingQ = '';
-			registry = [];
 			void load(1);
 		}}
 	>
 		<RotateCcw size={15} /> Išvalyti
 	</button>
 </section>
-
-{#if trackingQ.trim() && (registryLoading || registry.length > 0)}
-	<section class="mt-4 overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm">
-		<div class="border-b border-slate-200 px-5 py-3">
-			<h2 class="text-sm font-semibold text-slate-900">
-				Siuntų registro paieška: „{trackingQ}"
-			</h2>
-		</div>
-		{#if registryLoading}
-			<Spinner label="Ieškoma…" />
-		{:else}
-			<div class="divide-y divide-slate-100">
-				{#each registry as s}
-					<div class="flex flex-wrap items-center gap-4 px-5 py-3">
-						<a
-							href={`/uzsakymai/${s.order_id}`}
-							class="font-semibold text-sky-700 hover:underline">#{s.order_id}</a
-						>
-						<span class="text-xs font-medium text-slate-500">S{s.id}</span>
-						<span
-							class={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
-								s.kind === 'return'
-									? 'bg-amber-50 text-amber-700 ring-amber-200'
-									: 'bg-slate-50 text-slate-600 ring-slate-200'
-							}`}
-						>
-							{s.kind === 'return' ? 'Grąžinimas' : 'Siuntimas'}
-						</span>
-						<StatusBadge kind="delivery" value={s.status} />
-						<span class="font-mono text-xs text-slate-700">{s.tracking_number || '—'}</span>
-						<span class="text-xs text-slate-500">{s.pickup_point_name}</span>
-						{#if s.label_url}
-							<a
-								href={s.label_url}
-								target="_blank"
-								rel="noreferrer noopener"
-								class="text-xs font-medium text-sky-600 hover:underline">PDF</a
-							>
-						{/if}
-						<button
-							type="button"
-							class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-							onclick={() => void runFor(s.order_id, () => generateLabelForShipment(s.id))}
-						>
-							Lipdukas
-						</button>
-					</div>
-				{/each}
-				{#if registry.length === 0}
-					<p class="px-5 py-4 text-sm text-slate-500">Pagal sekimo numerį siuntų nerasta.</p>
-				{/if}
-			</div>
-		{/if}
-	</section>
-{/if}
 
 {#if selected.size > 0}
 	<div
@@ -286,26 +220,40 @@
 								aria-label="Pažymėti visas"
 							/>
 						</th>
+						<th class="px-3 py-3 font-medium">Siunta</th>
 						<th class="px-3 py-3 font-medium">Užsakymas</th>
 						<th class="px-3 py-3 font-medium">Metodas</th>
-						<th class="px-3 py-3 font-medium">Pristatymo būsena</th>
+						<th class="px-3 py-3 font-medium">Būsena</th>
 						<th class="px-3 py-3 font-medium">Vežėjas</th>
 						<th class="px-3 py-3 font-medium">Sekimo nr.</th>
+						<th class="px-3 py-3 font-medium">Paštomatas</th>
 						<th class="px-3 py-3 font-medium">Lipdukas</th>
 						<th class="px-3 py-3 text-right font-medium">Veiksmai</th>
 					</tr>
 				</thead>
 				<tbody>
-					{#each shipments as s (s.order_id)}
+					{#each shipments as s (s.id)}
 						<tr class="border-t border-slate-100 hover:bg-slate-50">
 							<td class="px-3 py-3">
 								<input
 									type="checkbox"
 									class="h-4 w-4 rounded border-slate-300"
-									checked={selected.has(s.order_id)}
-									onchange={() => toggleSelect(s.order_id)}
-									aria-label={`Pažymėti ${s.order_id}`}
+									checked={selected.has(s.id)}
+									onchange={() => toggleSelect(s.id)}
+									aria-label={`Pažymėti siuntą ${s.id}`}
 								/>
+							</td>
+							<td class="px-3 py-3">
+								<span class="font-semibold text-slate-800">S{s.id}</span>
+								<span
+									class={`ml-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${
+										s.kind === 'return'
+											? 'bg-amber-50 text-amber-700 ring-amber-200'
+											: 'bg-slate-50 text-slate-600 ring-slate-200'
+									}`}
+								>
+									{s.kind === 'return' ? 'Grąžinimas' : 'Siuntimas'}
+								</span>
 							</td>
 							<td class="px-3 py-3">
 								<a
@@ -319,7 +267,7 @@
 									{shippingMethodLabel(s.shipping_method)}
 								</span>
 							</td>
-							<td class="px-3 py-3"><StatusBadge kind="delivery" value={s.delivery_status} /></td>
+							<td class="px-3 py-3"><StatusBadge kind="delivery" value={s.status} /></td>
 							<td class="px-3 py-3 text-slate-700">{s.carrier_code || '—'}</td>
 							<td class="px-3 py-3 font-mono text-xs text-slate-600">
 								{s.tracking_number || '—'}
@@ -327,8 +275,28 @@
 									<div class="text-[10px] text-slate-400">{s.carrier_shipment_id}</div>
 								{/if}
 							</td>
+							<td class="px-3 py-3 text-xs text-slate-600">
+								{s.pickup_point_name || '—'}
+								{#if s.pickup_point_id}
+									<div class="text-[10px] text-slate-400">{s.pickup_point_id}</div>
+								{/if}
+							</td>
 							<td class="px-3 py-3 text-xs text-slate-500">
-								{s.label_generated_at ? formatDateTime(s.label_generated_at) : 'Nesugeneruotas'}
+								{#if s.label_url}
+									<a
+										href={s.label_url}
+										target="_blank"
+										rel="noreferrer noopener"
+										class="font-medium text-sky-600 hover:underline">PDF</a
+									>
+									{#if s.label_generated_at}
+										<div class="text-[10px] text-slate-400">
+											{formatDateTime(s.label_generated_at)}
+										</div>
+									{/if}
+								{:else}
+									Nesugeneruotas
+								{/if}
 							</td>
 							<td class="px-3 py-3">
 								<div class="flex justify-end gap-1.5">
@@ -336,7 +304,7 @@
 										type="button"
 										class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
 										disabled={busyId !== null}
-										onclick={() => void runFor(s.order_id, () => generateShipmentLabel(s.order_id))}
+										onclick={() => void runFor(s.id, () => generateLabelForShipment(s.id))}
 									>
 										Lipdukas
 									</button>
@@ -344,7 +312,11 @@
 										type="button"
 										class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
 										disabled={busyId !== null}
-										onclick={() => void runFor(s.order_id, () => markShipmentShipped(s.order_id))}
+										onclick={() =>
+											void runFor(s.id, async () => {
+												await updateShipment(s.id, { status: 'picked_up' });
+												return { message: 'Pažymėta išsiųsta.' };
+											})}
 									>
 										Išsiųsta
 									</button>
@@ -353,7 +325,8 @@
 										class="rounded-lg border border-slate-300 p-1.5 text-slate-500 hover:bg-slate-50 disabled:opacity-50"
 										title="Atnauinti sekimo informaciją"
 										disabled={busyId !== null}
-										onclick={() => void runFor(s.order_id, () => refreshShipmentTracking(s.order_id))}
+										onclick={() =>
+											void runFor(s.id, () => refreshShipmentTracking(s.order_id))}
 									>
 										<RefreshCw size={13} />
 									</button>

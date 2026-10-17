@@ -821,8 +821,11 @@ export function retryJob(jobId: number | string): Promise<OpsJob> {
 
 // --- Shipments registry / order management ---
 
-export function fetchShipmentRegistry(params: QueryParams = {}): Promise<OpsShipmentRow[]> {
-	return get<OpsShipmentRow[]>('/api/v1/ops/shipments/registry', params);
+export function fetchShipmentRegistry(params: QueryParams = {}): Promise<Paged<OpsShipmentRow>> {
+	return get<Paged<OpsShipmentRow>>('/api/v1/ops/shipments/registry', {
+		page_size: 50,
+		...params
+	});
 }
 
 export function fetchLockers(params: QueryParams = {}): Promise<OpsLockerOption[]> {
