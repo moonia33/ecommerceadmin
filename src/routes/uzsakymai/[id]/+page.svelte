@@ -33,6 +33,7 @@
 		paymentAction,
 		refreshShipmentTracking,
 		resolveSurcharge,
+		searchVariants,
 		updateOrderLine,
 		updateOrderShipping,
 		updateShipment,
@@ -40,7 +41,8 @@
 		type OpsOrderDetail,
 		type OpsOrderLine,
 		type OpsShipmentRow,
-		type OpsSurcharge
+		type OpsSurcharge,
+		type OpsVariantPicker
 	} from '#lib/api/client';
 	import { formatDate, formatDateTime, formatMoney } from '#lib/format';
 	import { eventKindLabel, eventNameLabel, shippingMethodLabel } from '#lib/labels';
@@ -83,8 +85,13 @@
 	let shStatus = $state('');
 
 	let lineModalOpen = $state(false);
-	let lineVariantId = $state('');
+	let lineQuery = $state('');
+	let lineResults = $state<OpsVariantPicker[]>([]);
+	let lineSearching = $state(false);
+	let lineSelected = $state<OpsVariantPicker | null>(null);
 	let lineQty = $state(1);
+	let lineOnlyActive = $state(true);
+	let lineSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let collectModal = $state<OpsSurcharge | null>(null);
 	let collectMethod = $state<'montonio' | 'bank_transfer'>('montonio');
@@ -202,20 +209,50 @@
 		}
 	}
 
+	function openLineModal() {
+		lineQuery = '';
+		lineResults = [];
+		lineSelected = null;
+		lineQty = 1;
+		lineModalOpen = true;
+		void searchLines();
+	}
+
+	function onLineQueryInput() {
+		if (lineSearchTimer) clearTimeout(lineSearchTimer);
+		lineSearchTimer = setTimeout(() => void searchLines(), 300);
+	}
+
+	async function searchLines() {
+		lineSearching = true;
+		try {
+			lineResults = await searchVariants({
+				q: lineQuery,
+				is_active: lineOnlyActive ? 'true' : '',
+				limit: 20
+			});
+		} catch {
+			lineResults = [];
+		} finally {
+			lineSearching = false;
+		}
+	}
+
 	async function submitAddLine() {
 		if (!order || busy) return;
-		const variantId = Number(lineVariantId);
-		if (!variantId || lineQty < 1) {
-			pushToast('error', 'Įveskite varianto ID ir kiekį.');
+		if (!lineSelected) {
+			pushToast('error', 'Pasirinkite prekę.');
+			return;
+		}
+		if (lineQty < 1) {
+			pushToast('error', 'Kiekis turi būti bent 1.');
 			return;
 		}
 		busy = true;
 		try {
-			await addOrderLine(order.id, { variant_id: variantId, qty: lineQty });
+			await addOrderLine(order.id, { variant_id: lineSelected.variant_id, qty: lineQty });
 			pushToast('success', 'Prekė pridėta.');
 			lineModalOpen = false;
-			lineVariantId = '';
-			lineQty = 1;
 			await load();
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Prekės pridėti nepavyko.');
@@ -817,7 +854,7 @@
 			<button
 				type="button"
 				class="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-				onclick={() => (lineModalOpen = true)}
+				onclick={openLineModal}
 				disabled={busy}
 			>
 				+ Pridėti prekę
@@ -1177,18 +1214,88 @@
 	title="Pridėti prekę"
 	subtitle={`Užsakymas #${order?.id ?? ''} — suma perskaičiuojama automatiškai`}
 >
-	<label class="block text-sm font-medium text-slate-700" for="al-variant">
-		Varianto ID
-	</label>
-	<input
-		id="al-variant"
-		class={`${inputClass} mt-1`}
-		placeholder="Pvz.: 1234"
-		bind:value={lineVariantId}
-	/>
-	<label class="mt-3 block text-sm font-medium text-slate-700" for="al-qty">Kiekis</label>
-	<input id="al-qty" type="number" min="1" class={`${inputClass} mt-1`} bind:value={lineQty} />
-	<p class="mt-3 text-xs text-slate-500">
+	<div class="flex items-center gap-3">
+		<input
+			class={`${inputClass} flex-1`}
+			placeholder="Ieškoti pagal pavadinimą, SKU arba barkodą…"
+			bind:value={lineQuery}
+			oninput={onLineQueryInput}
+		/>
+		<label class="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
+			<input
+				type="checkbox"
+				class="rounded border-slate-300"
+				bind:checked={lineOnlyActive}
+				onchange={() => void searchLines()}
+			/>
+			Aktyvios
+		</label>
+	</div>
+
+	<div class="mt-3 max-h-72 overflow-y-auto rounded-lg border border-slate-200">
+		{#if lineSearching}
+			<div class="flex items-center justify-center gap-2 px-4 py-6 text-sm text-slate-400">
+				<Spinner /> Ieškoma…
+			</div>
+		{:else if lineResults.length === 0}
+			<p class="px-4 py-6 text-center text-sm text-slate-400">
+				{lineQuery.trim() ? 'Nieko nerasta' : 'Įveskite paieškos frazę'}
+			</p>
+		{:else}
+			<div class="divide-y divide-slate-100">
+				{#each lineResults as v}
+					<button
+						type="button"
+						class="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate-50 {lineSelected?.variant_id ===
+						v.variant_id
+							? 'bg-sky-50 ring-1 ring-sky-300 ring-inset'
+							: ''}"
+						onclick={() => (lineSelected = v)}
+					>
+						{#if v.thumbnail_url}
+							<img
+								src={mediaUrl(v.thumbnail_url)}
+								alt={v.product_name}
+								class="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover"
+							/>
+						{/if}
+						<div class="min-w-0 flex-1">
+							<p class="truncate text-sm font-medium text-slate-800">
+								{v.product_name || v.name}
+								{#if v.name && v.name !== v.product_name}
+									<span class="text-slate-500">— {v.name}</span>
+								{/if}
+							</p>
+							<p class="truncate text-xs text-slate-500">
+								{v.sku}{#if v.barcode} · {v.barcode}{/if} · likutis: {v.stock_available}
+								{#if !v.is_active}<span class="text-rose-500"> · neaktyvus</span>{/if}
+							</p>
+						</div>
+						<span class="shrink-0 text-sm font-semibold text-slate-900">
+							{formatMoney(v.unit_gross, order?.amount_currency ?? 'EUR')}
+						</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
+	</div>
+
+	<div class="mt-3 flex items-center gap-3">
+		<label class="block text-sm font-medium text-slate-700" for="al-qty">Kiekis</label>
+		<input
+			id="al-qty"
+			type="number"
+			min="1"
+			class={`${inputClass} w-24`}
+			bind:value={lineQty}
+		/>
+		{#if lineSelected}
+			<p class="text-sm text-slate-600">
+				Pasirinkta: <span class="font-medium">{lineSelected.sku}</span>
+			</p>
+		{/if}
+	</div>
+	<p class="mt-2 text-xs text-slate-500">
 		Jei užsakymas apmokėtas — skirtumas automatiškai atsiras suvestinėje kaip priemoka.
 	</p>
 	{#snippet footer()}
@@ -1204,7 +1311,7 @@
 			type="button"
 			class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
 			onclick={() => void submitAddLine()}
-			disabled={busy || !lineVariantId}
+			disabled={busy || !lineSelected}
 		>
 			{busy ? 'Saugoma…' : 'Pridėti'}
 		</button>

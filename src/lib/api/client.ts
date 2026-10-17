@@ -915,6 +915,25 @@ export function mergeOrders(
 	});
 }
 
+export type OpsVariantPicker = {
+	variant_id: number;
+	sku: string;
+	barcode: string;
+	name: string;
+	product_id: number | null;
+	product_name: string;
+	product_slug: string;
+	thumbnail_url: string;
+	is_active: boolean;
+	unit_net: string;
+	unit_gross: string;
+	stock_available: number;
+};
+
+export function searchVariants(params: QueryParams = {}): Promise<OpsVariantPicker[]> {
+	return get<OpsVariantPicker[]>('/api/v1/ops/catalog/variants/search', params);
+}
+
 export function addOrderLine(
 	orderId: number | string,
 	payload: { variant_id: number; qty: number; offer_id?: number }
