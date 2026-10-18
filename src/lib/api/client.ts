@@ -41,6 +41,10 @@ export type OpsOrderLine = {
 	warehouse_kind: string;
 	allocated_qty: number;
 	unallocated_qty: number;
+	returnable: boolean;
+	return_days: number;
+	returned_qty: number;
+	return_deadline: string;
 	brand_name: string;
 	unit_net: string;
 	unit_vat: string;
@@ -1067,6 +1071,91 @@ export function resendInvoice(invoiceId: number): Promise<unknown> {
 
 export function invoicePdfUrl(invoiceId: number): string {
 	return `${getBaseUrl()}/api/v1/ops/invoices/${invoiceId}/pdf`;
+}
+
+// --- Returns (RMA) ---
+
+export type OpsReturnLine = {
+	id: number;
+	order_line_id: number;
+	sku: string;
+	name: string;
+	qty: number;
+	received_qty: number;
+	credited_qty: number;
+	reason: string;
+	returnable: boolean;
+	return_days: number;
+};
+
+export type OpsReturn = {
+	id: number;
+	number: string;
+	status: string;
+	order_id: number;
+	note: string;
+	shipment_id: number | null;
+	tracking_number: string;
+	credit_invoice_id: number | null;
+	credit_invoice_number: string;
+	decided_at: string;
+	received_at: string;
+	completed_at: string;
+	created_at: string;
+	lines: OpsReturnLine[];
+};
+
+export type OpsWarehouse = {
+	id: number;
+	code: string;
+	name: string;
+	kind: string;
+	country_code: string;
+};
+
+export function fetchWarehouses(): Promise<OpsWarehouse[]> {
+	return get<OpsWarehouse[]>('/api/v1/ops/warehouses');
+}
+
+export function fetchOrderReturns(orderId: number | string): Promise<OpsReturn[]> {
+	return get<OpsReturn[]>('/api/v1/ops/returns', { order_id: orderId });
+}
+
+export function createOrderReturn(
+	orderId: number | string,
+	payload: {
+		lines: { order_line_id: number; qty: number; reason?: string }[];
+		note?: string;
+		approve?: boolean;
+		allow_expired?: boolean;
+	}
+): Promise<OpsReturn> {
+	return post<OpsReturn>(`/api/v1/ops/orders/${orderId}/returns`, payload);
+}
+
+export function setReturnStatus(returnId: number, status: string): Promise<OpsReturn> {
+	return post<OpsReturn>(`/api/v1/ops/returns/${returnId}/status/${status}`);
+}
+
+export function addReturnShipment(
+	returnId: number,
+	payload: { carrier_code?: string; tracking_number?: string; notes?: string }
+): Promise<OpsReturn> {
+	return post<OpsReturn>(`/api/v1/ops/returns/${returnId}/shipment`, payload);
+}
+
+export function receiveReturn(
+	returnId: number,
+	payload: { lines: { return_line_id: number; qty: number }[]; restock_warehouse_id?: number }
+): Promise<OpsReturn> {
+	return post<OpsReturn>(`/api/v1/ops/returns/${returnId}/receive`, payload);
+}
+
+export function creditReturn(
+	returnId: number,
+	payload: { discount_gross?: string; send_email?: boolean }
+): Promise<OpsReturn> {
+	return post<OpsReturn>(`/api/v1/ops/returns/${returnId}/credit`, payload);
 }
 
 export function addOrderDiscount(
