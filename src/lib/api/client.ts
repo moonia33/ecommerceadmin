@@ -238,7 +238,9 @@ export type OpsOrderShippingUpdateResult = {
 export type OpsInventoryItem = {
 	id: number;
 	sku: string;
+	product_id: number | null;
 	product_name: string;
+	thumbnail_url: string;
 	warehouse_code: string;
 	qty_on_hand: number;
 	qty_reserved: number;
@@ -255,6 +257,7 @@ export type OpsCatalogProduct = {
 	brand_name: string;
 	category_name: string;
 	variants_count: number;
+	thumbnail_url: string;
 };
 
 export type OpsVariantOption = {
@@ -1032,11 +1035,22 @@ export type OpsInvoice = {
 	emailed_at: string;
 	has_pdf: boolean;
 	credit_of_number: string;
+	buyer_name: string;
+	buyer_email: string;
 };
 
 export type OpsInvoiceDetail = OpsInvoice & {
 	lines: OpsInvoiceLine[];
 };
+
+export function fetchInvoices(
+	params: QueryParams = {}
+): Promise<Paged<OpsInvoice>> {
+	return get<Paged<OpsInvoice>>('/api/v1/ops/invoices/registry', {
+		page_size: 50,
+		...params
+	});
+}
 
 export function fetchOrderInvoices(orderId: number | string): Promise<OpsInvoice[]> {
 	return get<OpsInvoice[]>('/api/v1/ops/invoices', { order_id: orderId });

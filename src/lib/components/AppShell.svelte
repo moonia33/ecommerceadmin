@@ -4,6 +4,7 @@
 	import {
 		Boxes,
 		CreditCard,
+		FileText,
 		LayoutDashboard,
 		LogOut,
 		Package,
@@ -22,6 +23,7 @@
 		{ href: '/uzsakymai', label: 'Užsakymai', icon: Package },
 		{ href: '/siuntos', label: 'Siuntos', icon: Truck },
 		{ href: '/mokejimai', label: 'Mokėjimai', icon: CreditCard },
+		{ href: '/dokumentai', label: 'Dokumentai', icon: FileText },
 		{ href: '/atsargos', label: 'Atsargos', icon: Warehouse },
 		{ href: '/prekes', label: 'Prekės', icon: Boxes },
 		{ href: '/klientai', label: 'Klientai', icon: Users },

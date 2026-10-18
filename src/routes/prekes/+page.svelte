@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { RotateCcw, Search } from '@lucide/svelte';
+	import { Image as ImageIcon, RotateCcw, Search } from '@lucide/svelte';
 	import Badge from '#lib/components/Badge.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Modal from '#lib/components/Modal.svelte';
@@ -230,11 +230,29 @@
 								/>
 							</td>
 							<td class="px-3 py-3">
-								<a
-									href={`/prekes/${product.id}`}
-									class="font-semibold text-sky-700 hover:underline">{product.name}</a
-								>
-								<div class="text-xs text-slate-400">{product.slug}</div>
+								<div class="flex items-center gap-3">
+									{#if product.thumbnail_url}
+										<img
+											src={product.thumbnail_url}
+											alt={product.name}
+											class="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover"
+											loading="lazy"
+										/>
+									{:else}
+										<div
+											class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-300"
+										>
+											<ImageIcon size={16} />
+										</div>
+									{/if}
+									<div class="min-w-0">
+										<a
+											href={`/prekes/${product.id}`}
+											class="font-semibold text-sky-700 hover:underline">{product.name}</a
+										>
+										<div class="truncate text-xs text-slate-400">{product.slug}</div>
+									</div>
+								</div>
 							</td>
 							<td class="px-3 py-3 font-mono text-xs text-slate-600">{product.sku}</td>
 							<td class="px-3 py-3 text-slate-700">{product.brand_name || '—'}</td>
