@@ -1048,7 +1048,11 @@ export function issueOrderInvoice(orderId: number | string): Promise<OpsInvoice>
 
 export function createCreditInvoice(
 	invoiceId: number,
-	payload: { lines?: { invoice_line_id: number; qty: number }[]; send_email?: boolean }
+	payload: {
+		lines?: { invoice_line_id: number; qty: number }[];
+		discount_gross?: string;
+		send_email?: boolean;
+	}
 ): Promise<OpsInvoice> {
 	return post<OpsInvoice>(`/api/v1/ops/invoices/${invoiceId}/credit`, payload);
 }

@@ -390,6 +390,7 @@
 	let creditInvoiceId = $state<number | null>(null);
 	let creditLines = $state<{ invoice_line_id: number; name: string; qty: number; max: number }[]>([]);
 	let creditSendEmail = $state(false);
+	let creditDiscount = $state('');
 
 	async function doIssueInvoice() {
 		if (!order || busy) return;
@@ -436,15 +437,18 @@
 	async function openCreditModal(inv: OpsInvoice) {
 		creditInvoiceId = inv.id;
 		creditSendEmail = false;
+		creditDiscount = '';
 		creditLines = [];
 		try {
 			const detail = await fetchInvoiceDetail(inv.id);
-			creditLines = detail.lines.map((l) => ({
-				invoice_line_id: l.id,
-				name: l.name,
-				qty: l.qty - l.credited_qty,
-				max: l.qty - l.credited_qty
-			}));
+			creditLines = detail.lines
+				.filter((l) => l.line_type !== 'discount')
+				.map((l) => ({
+					invoice_line_id: l.id,
+					name: l.name,
+					qty: l.qty - l.credited_qty,
+					max: l.qty - l.credited_qty
+				}));
 			creditModalOpen = true;
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Sąskaitos įkelti nepavyko.');
@@ -462,11 +466,13 @@
 		}
 		busy = true;
 		try {
+			const dg = creditDiscount.trim().replace(',', '.');
 			const inv = await createCreditInvoice(creditInvoiceId, {
 				lines: allFull ? undefined : selected.map((l) => ({
 					invoice_line_id: l.invoice_line_id,
 					qty: l.qty
 				})),
+				discount_gross: dg && !Number.isNaN(Number(dg)) ? dg : undefined,
 				send_email: creditSendEmail
 			});
 			pushToast('success', `Kreditinė ${inv.number} išrašyta.`);
@@ -2128,6 +2134,19 @@
 			{/each}
 		</ul>
 	{/if}
+	<label class="mt-4 block text-sm font-medium text-slate-700">
+		Nuolaidos grąžinimas € (su PVM)
+		<input
+			class={`${inputClass} mt-1`}
+			bind:value={creditDiscount}
+			inputmode="decimal"
+			placeholder="Tuščia = proporcingai automatiškai"
+		/>
+	</label>
+	<p class="mt-1.5 text-xs text-slate-400">
+		Tuščia — nuolaida kredituojama proporcingai kredituojamų prekių sumai.
+		Įveskite sumą, jei grąžinate visą arba kitokią nuolaidos dalį.
+	</p>
 	<label class="mt-4 flex items-center gap-2 text-sm text-slate-700">
 		<input type="checkbox" bind:checked={creditSendEmail} class="rounded border-slate-300" />
 		Išsiųsti klientui el. paštu
