@@ -49,6 +49,7 @@
 		fetchWarehouses,
 		receiveReturn,
 		setReturnStatus,
+		refundSurcharge,
 		resolveSurcharge,
 		searchVariants,
 		updateOrderAddress,
@@ -710,6 +711,26 @@
 			await load();
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Priemokos išsiųsti nepavyko.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function doMontonioRefund(s: OpsSurcharge) {
+		if (busy) return;
+		if (
+			!confirm(
+				`Grąžinti ${formatMoney(s.amount_gross, s.currency)} klientui per Montonio?`
+			)
+		)
+			return;
+		busy = true;
+		try {
+			await refundSurcharge(s.id);
+			pushToast('success', 'Grąžinimas pateiktas Montonio — laukiamas patvirtinimas.');
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Grąžinimas nepavyko.');
 		} finally {
 			busy = false;
 		}
@@ -1500,24 +1521,40 @@
 									>
 										Sumokėta
 									</button>
+								{:else if s.refund_in_flight}
+									<span
+										class="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 ring-1 ring-sky-200"
+									>
+										Vykdoma per Montonio…
+									</span>
 								{:else}
 									<button
 										type="button"
-										class="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+										class="rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+										onclick={() => void doMontonioRefund(s)}
+										disabled={busy}
+									>
+										Grąžinti per Montonio
+									</button>
+									<button
+										type="button"
+										class="rounded-lg border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
 										onclick={() => void surchargeAction(s, 'resolve')}
 										disabled={busy}
 									>
-										Grąžinta
+										Grąžinta ranka
 									</button>
 								{/if}
-								<button
-									type="button"
-									class="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-									onclick={() => void surchargeAction(s, 'cancel')}
-									disabled={busy}
-								>
-									Atšaukti
-								</button>
+								{#if !s.refund_in_flight}
+									<button
+										type="button"
+										class="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+										onclick={() => void surchargeAction(s, 'cancel')}
+										disabled={busy}
+									>
+										Atšaukti
+									</button>
+								{/if}
 							{/if}
 						</div>
 					</div>

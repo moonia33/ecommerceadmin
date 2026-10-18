@@ -213,6 +213,7 @@ export type OpsSurcharge = {
 	emailed_at: string;
 	paid_at: string;
 	created_at: string;
+	refund_in_flight: boolean;
 };
 
 export type OpsLockerOption = {
@@ -1250,6 +1251,10 @@ export function markSurchargePaid(surchargeId: number): Promise<OpsSurcharge> {
 
 export function resolveSurcharge(surchargeId: number): Promise<OpsSurcharge> {
 	return post<OpsSurcharge>(`/api/v1/ops/surcharges/${surchargeId}/resolve`);
+}
+
+export function refundSurcharge(surchargeId: number): Promise<OpsSurcharge> {
+	return post<OpsSurcharge>(`/api/v1/ops/surcharges/${surchargeId}/refund`);
 }
 
 export function cancelSurcharge(surchargeId: number): Promise<OpsSurcharge> {
