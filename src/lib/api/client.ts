@@ -598,6 +598,42 @@ async function request<T>(
 	return (await parseJsonSafely(response)) as T;
 }
 
+async function requestBlob(path: string, body?: unknown): Promise<{ blob: Blob; filename: string }> {
+	const url = `${getBaseUrl()}${path}`;
+	const response = await fetch(url, {
+		method: 'POST',
+		credentials: 'include',
+		headers: { Accept: '*/*', 'Content-Type': 'application/json' },
+		body: body === undefined ? undefined : JSON.stringify(body)
+	});
+	if (!response.ok) {
+		const text = await response.text();
+		let detail = `Request failed: ${response.status} ${response.statusText}`;
+		try {
+			const parsed = JSON.parse(text) as { detail?: string };
+			if (parsed.detail) detail = parsed.detail;
+		} catch {
+			/* non-JSON error body */
+		}
+		throw new ApiError(detail, response.status, response);
+	}
+	const disposition = response.headers.get('content-disposition') ?? '';
+	const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(disposition);
+	const filename = match ? decodeURIComponent(match[1].replace(/"/g, '')) : 'export';
+	return { blob: await response.blob(), filename };
+}
+
+export function downloadBlob(blob: Blob, filename: string) {
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 function get<T>(path: string, params: QueryParams = {}): Promise<T> {
 	return request<T>(`${path}${toQueryString(params)}`);
 }
@@ -1085,6 +1121,21 @@ export function resendInvoice(invoiceId: number): Promise<unknown> {
 
 export function invoicePdfUrl(invoiceId: number): string {
 	return `${getBaseUrl()}/api/v1/ops/invoices/${invoiceId}/pdf`;
+}
+
+export async function exportInvoices(
+	format: 'pdf_zip' | 'csv',
+	payload: {
+		invoice_ids?: number[];
+		q?: string;
+		kind?: string;
+		status?: string;
+		order_id?: number;
+		date_from?: string;
+		date_to?: string;
+	}
+): Promise<{ blob: Blob; filename: string }> {
+	return requestBlob('/api/v1/ops/invoices/export', { format, ...payload });
 }
 
 // --- Returns (RMA) ---

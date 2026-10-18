@@ -9,6 +9,8 @@
 	import {
 		ApiError,
 		cancelInvoice,
+		downloadBlob,
+		exportInvoices,
 		fetchInvoices,
 		invoicePdfUrl,
 		resendInvoice,
@@ -31,6 +33,61 @@
 	let dateFrom = $state('');
 	let dateTo = $state('');
 
+	let selected = $state<Set<number>>(new Set());
+	let exportBusy = $state<'' | 'pdf_zip' | 'csv'>('');
+
+	function toggleSelect(id: number) {
+		const next = new Set(selected);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selected = next;
+	}
+
+	function toggleSelectAll() {
+		if (selected.size === invoices.length) selected = new Set();
+		else selected = new Set(invoices.map((i) => i.id));
+	}
+
+	async function runExport(format: 'pdf_zip' | 'csv') {
+		if (exportBusy) return;
+		const ids = [...selected];
+		if (ids.length === 0 && total === 0) {
+			pushToast('error', 'Nėra dokumentų eksportui.');
+			return;
+		}
+		if (
+			ids.length === 0 &&
+			!confirm(
+				`Eksportuoti visus ${total} dokumentus pagal dabartinius filtrus?`
+			)
+		)
+			return;
+		exportBusy = format;
+		try {
+			const { blob, filename } = await exportInvoices(
+				format,
+				ids.length > 0
+					? { invoice_ids: ids }
+					: {
+							q: q.trim(),
+							kind,
+							status,
+							date_from: dateFrom,
+							date_to: dateTo
+						}
+			);
+			downloadBlob(blob, filename);
+			pushToast(
+				'success',
+				format === 'pdf_zip' ? 'PDF archyvas atsisiųstas.' : 'CSV eksportuotas.'
+			);
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Eksportas nepavyko.');
+		} finally {
+			exportBusy = '';
+		}
+	}
+
 	async function load(pageNum = page) {
 		loading = true;
 		try {
@@ -46,6 +103,7 @@
 			invoices = res.results;
 			total = res.total_count;
 			page = res.page;
+			selected = new Set();
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Nepavyko įkelti dokumentų.');
 		} finally {
@@ -100,6 +158,22 @@
 	{#snippet actions()}
 		<button
 			type="button"
+			class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+			onclick={() => void runExport('pdf_zip')}
+			disabled={exportBusy !== ''}
+		>
+			{exportBusy === 'pdf_zip' ? 'Ruošiama…' : 'Atsisiųsti PDF'}
+		</button>
+		<button
+			type="button"
+			class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+			onclick={() => void runExport('csv')}
+			disabled={exportBusy !== ''}
+		>
+			{exportBusy === 'csv' ? 'Ruošiama…' : 'Eksportuoti CSV'}
+		</button>
+		<button
+			type="button"
 			class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
 			onclick={() => void load()}
 		>
@@ -107,6 +181,37 @@
 		</button>
 	{/snippet}
 </PageHeader>
+
+{#if selected.size > 0}
+	<div
+		class="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 shadow-sm"
+	>
+		<span class="text-sm font-medium text-sky-900">Pažymėta: {selected.size}</span>
+		<button
+			type="button"
+			class="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-sky-700 ring-1 ring-sky-300 hover:bg-sky-100 disabled:opacity-50"
+			disabled={exportBusy !== ''}
+			onclick={() => void runExport('pdf_zip')}
+		>
+			PDF archyvas
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-sky-700 ring-1 ring-sky-300 hover:bg-sky-100 disabled:opacity-50"
+			disabled={exportBusy !== ''}
+			onclick={() => void runExport('csv')}
+		>
+			CSV
+		</button>
+		<button
+			type="button"
+			class="ml-auto text-sm text-slate-500 hover:text-slate-700"
+			onclick={() => (selected = new Set())}
+		>
+			Atžymėti visus
+		</button>
+	</div>
+{/if}
 
 <section
 	class="mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -171,6 +276,15 @@
 			<table class="min-w-full text-left text-sm">
 				<thead class="bg-slate-50 text-xs tracking-wide text-slate-500 uppercase">
 					<tr>
+						<th class="px-3 py-3">
+							<input
+								type="checkbox"
+								class="h-4 w-4 rounded border-slate-300"
+								checked={selected.size === invoices.length && invoices.length > 0}
+								onchange={toggleSelectAll}
+								aria-label="Pažymėti visus"
+							/>
+						</th>
 						<th class="px-4 py-3 font-medium">Numeris</th>
 						<th class="px-4 py-3 font-medium">Tipas</th>
 						<th class="px-4 py-3 font-medium">Užsakymas</th>
@@ -185,6 +299,15 @@
 				<tbody>
 					{#each invoices as inv (inv.id)}
 						<tr class="border-t border-slate-100 hover:bg-slate-50">
+							<td class="px-3 py-3">
+								<input
+									type="checkbox"
+									class="h-4 w-4 rounded border-slate-300"
+									checked={selected.has(inv.id)}
+									onchange={() => toggleSelect(inv.id)}
+									aria-label={`Pažymėti ${inv.number}`}
+								/>
+							</td>
 							<td class="px-4 py-3">
 								<span class="font-semibold text-slate-900">{inv.number}</span>
 								{#if inv.credit_of_number}
