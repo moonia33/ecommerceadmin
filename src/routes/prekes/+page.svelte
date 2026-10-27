@@ -10,9 +10,11 @@
 	import {
 		ApiError,
 		catalogBulkAction,
+		fetchCatalogLookups,
 		fetchCatalogProducts,
 		toggleCatalogProduct,
-		type OpsCatalogProduct
+		type OpsCatalogProduct,
+		type OpsLookupOption
 	} from '#lib/api/client';
 	import { pushToast } from '#lib/stores/toasts.svelte';
 
@@ -29,8 +31,27 @@
 	let q = $state('');
 	let isActive = $state('');
 
+	// Kategorijų lookup (inline redagavimui + bulk priskyrimui)
+	let categories = $state<OpsLookupOption[]>([]);
+	let catBusyId = $state<number | null>(null);
+
 	// Masinio veiksmo patvirtinimas
-	let bulkKind = $state<'' | 'activate_products' | 'deactivate_products'>('');
+	let bulkKind = $state<'' | 'activate_products' | 'deactivate_products' | 'assign_category'>('');
+	let bulkCategoryId = $state<number | null>(null);
+
+	async function assignCategory(productId: number, categoryId: number | null) {
+		if (catBusyId !== null) return;
+		catBusyId = productId;
+		try {
+			await catalogBulkAction('assign_category', [productId], categoryId);
+			pushToast('success', 'Kategorija pakeista.');
+			await load();
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Nepavyko pakeisti kategorijos.');
+		} finally {
+			catBusyId = null;
+		}
+	}
 
 	async function load(pageNum = page) {
 		loading = true;
@@ -85,16 +106,20 @@
 
 	async function runBulk() {
 		if (!bulkKind || bulkBusy || selected.size === 0) return;
+		if (bulkKind === 'assign_category' && bulkCategoryId === null && !confirm('Nuimti kategoriją pažymėtoms prekėms?')) return;
 		bulkBusy = true;
 		try {
-			const res = await catalogBulkAction(bulkKind, [...selected]);
+			const res = await catalogBulkAction(bulkKind, [...selected], bulkCategoryId);
 			pushToast(
 				'success',
-				bulkKind === 'activate_products'
-					? `Aktyvuota prekių: ${res.updated_ids.length}.`
-					: `Deaktyvuota prekių: ${res.updated_ids.length}.`
+				bulkKind === 'assign_category'
+					? `Kategorija priskirta ${res.updated_ids.length} prekėms.`
+					: bulkKind === 'activate_products'
+						? `Aktyvuota prekių: ${res.updated_ids.length}.`
+						: `Deaktyvuota prekių: ${res.updated_ids.length}.`
 			);
 			bulkKind = '';
+			bulkCategoryId = null;
 			await load();
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Masinis veiksmas nepavyko.');
@@ -103,7 +128,12 @@
 		}
 	}
 
-	onMount(() => void load(1));
+	onMount(() => {
+		void load(1);
+		fetchCatalogLookups()
+			.then((l) => (categories = l.categories))
+			.catch(() => {});
+	});
 
 	const selectClass =
 		'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-sky-500 focus:ring-2 focus:ring-sky-200 focus:outline-none';
@@ -178,6 +208,16 @@
 			onclick={() => (bulkKind = 'deactivate_products')}
 		>
 			Deaktyvuoti
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-sky-700 ring-1 ring-sky-300 hover:bg-sky-50"
+			onclick={() => {
+				bulkCategoryId = null;
+				bulkKind = 'assign_category';
+			}}
+		>
+			Priskirti kategorijai
 		</button>
 		<button
 			type="button"
@@ -256,7 +296,25 @@
 							</td>
 							<td class="px-3 py-3 font-mono text-xs text-slate-600">{product.sku}</td>
 							<td class="px-3 py-3 text-slate-700">{product.brand_name || '—'}</td>
-							<td class="px-3 py-3 text-slate-700">{product.category_name || '—'}</td>
+							<td class="px-3 py-3">
+							<select
+								class="max-w-52 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-200 focus:outline-none disabled:opacity-50"
+								value={product.category_id ?? ''}
+								disabled={catBusyId !== null}
+								onchange={(e) => {
+									const v = (e.currentTarget as HTMLSelectElement).value;
+									void assignCategory(product.id, v === '' ? null : Number(v));
+								}}
+								aria-label={`Kategorija: ${product.name}`}
+							>
+								<option value="">— be kategorijos —</option>
+								{#each categories as cat (cat.id)}
+									<option value={cat.id}>
+										{' '.repeat(Math.min(cat.depth, 6) * 2)}{cat.name}
+									</option>
+								{/each}
+							</select>
+						</td>
 							<td class="px-3 py-3 text-right text-slate-600">{product.variants_count}</td>
 							<td class="px-3 py-3">
 								<Badge
@@ -304,10 +362,28 @@
 			if (!v) bulkKind = '';
 		}
 	}
-	title={bulkKind === 'activate_products' ? 'Aktyvuoti prekes' : 'Deaktyvuoti prekes'}
+	title={
+		bulkKind === 'assign_category'
+			? 'Priskirti kategorijai'
+			: bulkKind === 'activate_products'
+				? 'Aktyvuoti prekes'
+				: 'Deaktyvuoti prekes'
+	}
 	subtitle={`Veiksmas bus pritaikytas ${selected.size} prekėms.`}
 >
-	{#if bulkKind === 'deactivate_products'}
+	{#if bulkKind === 'assign_category'}
+		<label class="block text-sm font-medium text-slate-700" for="bulk-cat">Kategorija</label>
+		<select
+			id="bulk-cat"
+			class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 focus:outline-none"
+			bind:value={bulkCategoryId}
+		>
+			<option value={null}>— be kategorijos (nuimti) —</option>
+			{#each categories as cat (cat.id)}
+				<option value={cat.id}>{' '.repeat(Math.min(cat.depth, 6) * 2)}{cat.name}</option>
+			{/each}
+		</select>
+	{:else if bulkKind === 'deactivate_products'}
 		<p class="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200">
 			Deaktyvuotos prekės nebebus matomos parduotuvėje.
 		</p>

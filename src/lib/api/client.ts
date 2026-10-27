@@ -243,6 +243,7 @@ export type OpsInventoryItem = {
 	product_name: string;
 	thumbnail_url: string;
 	warehouse_code: string;
+	warehouse_kind: string;
 	qty_on_hand: number;
 	qty_reserved: number;
 	qty_available: number;
@@ -256,6 +257,7 @@ export type OpsCatalogProduct = {
 	slug: string;
 	is_active: boolean;
 	brand_name: string;
+	category_id: number | null;
 	category_name: string;
 	variants_count: number;
 	thumbnail_url: string;
@@ -772,9 +774,31 @@ export function fetchInventoryItems(params: QueryParams = {}): Promise<Paged<Ops
 
 export function adjustInventoryItem(
 	itemId: number | string,
-	payload: { delta: number; reason_code: string; comment?: string }
+	payload: { delta: number; reason_code: string; comment?: string; confirm_remote?: boolean }
 ): Promise<OpsActionResult> {
 	return post<OpsActionResult>(`/api/v1/ops/inventory/items/${itemId}/adjust`, payload);
+}
+
+export type OpsInventoryAdjustment = {
+	id: number;
+	sku: string;
+	product_id: number | null;
+	product_name: string;
+	warehouse_code: string;
+	warehouse_kind: string;
+	delta: number;
+	qty_before: number;
+	qty_after: number;
+	reason_code: string;
+	comment: string;
+	user_email: string;
+	created_at: string;
+};
+
+export function fetchInventoryAdjustments(
+	params: QueryParams = {}
+): Promise<Paged<OpsInventoryAdjustment>> {
+	return get<Paged<OpsInventoryAdjustment>>('/api/v1/ops/inventory/adjustments', params);
 }
 
 // --- Catalog ---
@@ -840,12 +864,14 @@ export function setOfferVisibility(
 }
 
 export function catalogBulkAction(
-	action: 'activate_products' | 'deactivate_products',
-	productIds: number[]
+	action: 'activate_products' | 'deactivate_products' | 'assign_category',
+	productIds: number[],
+	categoryId?: number | null
 ): Promise<OpsActionResult> {
 	return post<OpsActionResult>('/api/v1/ops/catalog/bulk-actions', {
 		action,
-		product_ids: productIds
+		product_ids: productIds,
+		...(action === 'assign_category' ? { category_id: categoryId ?? null } : {})
 	});
 }
 
