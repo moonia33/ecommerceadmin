@@ -31,20 +31,25 @@
 	let q = $state('');
 	let isActive = $state('');
 	let categoryId = $state('');
+	let groupId = $state('');
+	let brandId = $state('');
 
 	// Kategorijų lookup (inline redagavimui + bulk priskyrimui)
 	let categories = $state<OpsLookupOption[]>([]);
+	let groups = $state<OpsLookupOption[]>([]);
+	let brands = $state<OpsLookupOption[]>([]);
 	let catBusyId = $state<number | null>(null);
 
 	// Masinio veiksmo patvirtinimas
-	let bulkKind = $state<'' | 'activate_products' | 'deactivate_products' | 'assign_category'>('');
+	let bulkKind = $state<'' | 'activate_products' | 'deactivate_products' | 'assign_category' | 'assign_group'>('');
 	let bulkCategoryId = $state<number | null>(null);
+	let bulkGroupId = $state<number | null>(null);
 
 	async function assignCategory(productId: number, categoryId: number | null) {
 		if (catBusyId !== null) return;
 		catBusyId = productId;
 		try {
-			await catalogBulkAction('assign_category', [productId], categoryId);
+			await catalogBulkAction('assign_category', [productId], { categoryId });
 			pushToast('success', 'Kategorija pakeista.');
 			await load();
 		} catch (e) {
@@ -61,6 +66,8 @@
 				q: q.trim(),
 				is_active: isActive,
 				category_id: categoryId || undefined,
+				group_id: groupId || undefined,
+				brand_id: brandId || undefined,
 				page: pageNum,
 				page_size: PAGE_SIZE
 			});
@@ -109,19 +116,23 @@
 	async function runBulk() {
 		if (!bulkKind || bulkBusy || selected.size === 0) return;
 		if (bulkKind === 'assign_category' && bulkCategoryId === null && !confirm('Nuimti kategoriją pažymėtoms prekėms?')) return;
+		if (bulkKind === 'assign_group' && bulkGroupId === null && !confirm('Nuimti grupę pažymėtoms prekėms?')) return;
 		bulkBusy = true;
 		try {
-			const res = await catalogBulkAction(bulkKind, [...selected], bulkCategoryId);
+			const res = await catalogBulkAction(bulkKind, [...selected], { categoryId: bulkCategoryId, groupId: bulkGroupId });
 			pushToast(
 				'success',
-				bulkKind === 'assign_category'
-					? `Kategorija priskirta ${res.updated_ids.length} prekėms.`
+				bulkKind === 'assign_group'
+					? `Grupė priskirta ${res.updated_ids.length} prekėms.`
+					: bulkKind === 'assign_category'
+						? `Kategorija priskirta ${res.updated_ids.length} prekėms.`
 					: bulkKind === 'activate_products'
 						? `Aktyvuota prekių: ${res.updated_ids.length}.`
 						: `Deaktyvuota prekių: ${res.updated_ids.length}.`
 			);
 			bulkKind = '';
 			bulkCategoryId = null;
+			bulkGroupId = null;
 			await load();
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Masinis veiksmas nepavyko.');
@@ -133,7 +144,11 @@
 	onMount(() => {
 		void load(1);
 		fetchCatalogLookups()
-			.then((l) => (categories = l.categories))
+			.then((l) => {
+				categories = l.categories;
+				groups = l.groups;
+				brands = l.brands;
+			})
 			.catch(() => {});
 	});
 
@@ -174,6 +189,20 @@
 			<option value={cat.id}>{' '.repeat(Math.min(cat.depth, 6) * 2)}{cat.name}</option>
 		{/each}
 	</select>
+	<select class={selectClass} bind:value={groupId} aria-label="Grupė" onchange={() => void load(1)}>
+		<option value="">Visos grupės</option>
+		<option value="0">— be grupės —</option>
+		{#each groups as g (g.id)}
+			<option value={g.id}>{g.name}</option>
+		{/each}
+	</select>
+	<select class={selectClass} bind:value={brandId} aria-label="Gamintojas" onchange={() => void load(1)}>
+		<option value="">Visi gamintojai</option>
+		<option value="0">— be gamintojo —</option>
+		{#each brands as b (b.id)}
+			<option value={b.id}>{b.name}</option>
+		{/each}
+	</select>
 	<select class={selectClass} bind:value={isActive} aria-label="Aktyvumas">
 		<option value="">Visos</option>
 		<option value="true">Aktyvios</option>
@@ -193,6 +222,8 @@
 			q = '';
 			isActive = '';
 			categoryId = '';
+			groupId = '';
+			brandId = '';
 			void load(1);
 		}}
 	>
@@ -228,6 +259,16 @@
 			}}
 		>
 			Priskirti kategorijai
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-indigo-700 ring-1 ring-indigo-300 hover:bg-indigo-50"
+			onclick={() => {
+				bulkGroupId = null;
+				bulkKind = 'assign_group';
+			}}
+		>
+			Priskirti grupei
 		</button>
 		<button
 			type="button"
@@ -375,15 +416,29 @@
 		}
 	}
 	title={
-		bulkKind === 'assign_category'
-			? 'Priskirti kategorijai'
-			: bulkKind === 'activate_products'
-				? 'Aktyvuoti prekes'
-				: 'Deaktyvuoti prekes'
+		bulkKind === 'assign_group'
+			? 'Priskirti grupei'
+			: bulkKind === 'assign_category'
+				? 'Priskirti kategorijai'
+				: bulkKind === 'activate_products'
+					? 'Aktyvuoti prekes'
+					: 'Deaktyvuoti prekes'
 	}
 	subtitle={`Veiksmas bus pritaikytas ${selected.size} prekėms.`}
 >
-	{#if bulkKind === 'assign_category'}
+	{#if bulkKind === 'assign_group'}
+		<label class="block text-sm font-medium text-slate-700" for="bulk-grp">Grupė</label>
+		<select
+			id="bulk-grp"
+			class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 focus:outline-none"
+			bind:value={bulkGroupId}
+		>
+			<option value={null}>— be grupės (nuimti) —</option>
+			{#each groups as g (g.id)}
+				<option value={g.id}>{g.name}</option>
+			{/each}
+		</select>
+	{:else if bulkKind === 'assign_category'}
 		<label class="block text-sm font-medium text-slate-700" for="bulk-cat">Kategorija</label>
 		<select
 			id="bulk-cat"

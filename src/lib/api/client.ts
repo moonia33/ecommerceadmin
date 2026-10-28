@@ -864,14 +864,15 @@ export function setOfferVisibility(
 }
 
 export function catalogBulkAction(
-	action: 'activate_products' | 'deactivate_products' | 'assign_category',
+	action: 'activate_products' | 'deactivate_products' | 'assign_category' | 'assign_group',
 	productIds: number[],
-	categoryId?: number | null
+	opts?: { categoryId?: number | null; groupId?: number | null }
 ): Promise<OpsActionResult> {
 	return post<OpsActionResult>('/api/v1/ops/catalog/bulk-actions', {
 		action,
 		product_ids: productIds,
-		...(action === 'assign_category' ? { category_id: categoryId ?? null } : {})
+		...(action === 'assign_category' ? { category_id: opts?.categoryId ?? null } : {}),
+		...(action === 'assign_group' ? { group_id: opts?.groupId ?? null } : {})
 	});
 }
 
