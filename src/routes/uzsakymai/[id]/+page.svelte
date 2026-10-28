@@ -16,6 +16,7 @@
 	import Modal from '#lib/components/Modal.svelte';
 	import Spinner from '#lib/components/Spinner.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
+	import CopyText from '#lib/components/CopyText.svelte';
 	import {
 		ApiError,
 		addOrderDiscount,
@@ -954,8 +955,8 @@
 				{order.customer.full_name || '—'}
 			</p>
 			<div class="mt-2 space-y-1 text-sm text-slate-600">
-				<p>{order.customer.email || '—'}</p>
-				<p>{order.customer.phone || order.shipping_address.phone || '—'}</p>
+				<p><CopyText text={order.customer.email || '—'} /></p>
+				<p><CopyText text={order.customer.phone || order.shipping_address.phone || '—'} mono /></p>
 				{#if order.customer.company}
 					<p>Įmonė: {order.customer.company}</p>
 				{/if}
@@ -1021,7 +1022,7 @@
 					{order.shipping_address.postal_code || ''}, {order.shipping_address.country_code ||
 						order.shipping_country_code}
 				</p>
-					{#if order.shipping_address.phone}<p>Tel.: {order.shipping_address.phone}</p>{/if}
+					{#if order.shipping_address.phone}<p>Tel.: <CopyText text={order.shipping_address.phone} mono /></p>{/if}
 				</div>
 				<button
 					type="button"
@@ -1611,10 +1612,10 @@
 											class="h-10 w-10 rounded-lg border border-slate-200 object-cover"
 										/>
 									{/if}
-									<span class="font-medium text-slate-800">{line.product_name || line.name}</span>
+									<CopyText text={line.product_name || line.name} class="font-medium text-slate-800" />
 								</div>
 							</td>
-							<td class="px-4 py-3 font-mono text-xs text-slate-600">{line.sku || '—'}</td>
+							<td class="px-4 py-3 font-mono text-xs text-slate-600"><CopyText text={line.sku || '—'} mono /></td>
 							<td class="px-4 py-3 text-slate-600">{line.brand_name || '—'}</td>
 							<td class="px-4 py-3">
 								<div class="flex flex-wrap items-center gap-1.5">

@@ -8,6 +8,7 @@
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
 	import Spinner from '#lib/components/Spinner.svelte';
+	import CopyText from '#lib/components/CopyText.svelte';
 	import {
 		ApiError,
 		catalogBulkAction,
@@ -377,7 +378,7 @@
 									</div>
 								</div>
 							</td>
-							<td class="px-3 py-3 font-mono text-xs text-slate-600">{product.sku}</td>
+							<td class="px-3 py-3 font-mono text-xs text-slate-600"><CopyText text={product.sku} mono /></td>
 							<td class="px-3 py-3 text-slate-700">{product.brand_name || '—'}</td>
 							<td class="px-3 py-3">
 							<input

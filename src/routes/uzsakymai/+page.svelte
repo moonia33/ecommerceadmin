@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { CheckSquare, Filter, PackageOpen, RotateCcw, Search, Tag } from '@lucide/svelte';
+	import { CheckSquare, ChevronDown, Filter, PackageOpen, RotateCcw, Search, Tag } from '@lucide/svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Modal from '#lib/components/Modal.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
 	import Spinner from '#lib/components/Spinner.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
+	import CopyText from '#lib/components/CopyText.svelte';
 	import { goto } from '$app/navigation';
 	import {
 		ApiError,
@@ -28,6 +29,7 @@
 	let total = $state(0);
 	let page = $state(1);
 	let selected = $state<Set<number>>(new Set());
+	let expanded = $state<Set<number>>(new Set());
 
 	// Filtrų forma
 	let q = $state('');
@@ -159,6 +161,12 @@
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
 		selected = next;
+	}
+
+	function toggleExpanded(id: number) {
+		const next = new Set(expanded);
+		if (next.has(id)) next.delete(id); else next.add(id);
+		expanded = next;
 	}
 
 	function toggleSelectAll() {
@@ -414,7 +422,6 @@
 						<th class="px-3 py-3 font-medium">Būsena</th>
 						<th class="px-3 py-3 font-medium">Mokėjimas</th>
 						<th class="px-3 py-3 font-medium">Pristatymas</th>
-						<th class="px-3 py-3 font-medium">Prekės</th>
 						<th class="px-3 py-3 font-medium">Suma</th>
 						<th class="px-3 py-3 font-medium">Sukurta</th>
 					</tr>
@@ -423,19 +430,32 @@
 					{#each orders as order (order.id)}
 						<tr class="border-t border-slate-100 hover:bg-slate-50">
 							<td class="px-3 py-3">
-								<input
-									type="checkbox"
-									class="h-4 w-4 rounded border-slate-300"
-									checked={selected.has(order.id)}
-									onchange={() => toggleSelect(order.id)}
-									aria-label={`Pažymėti užsakymą ${order.id}`}
-								/>
+								<div class="flex items-center gap-1">
+									<input
+										type="checkbox"
+										class="h-4 w-4 rounded border-slate-300"
+										checked={selected.has(order.id)}
+										onchange={() => toggleSelect(order.id)}
+										aria-label={`Pažymėti užsakymą ${order.id}`}
+									/>
+									<button
+										type="button"
+										class={`rounded p-0.5 text-slate-400 transition-transform hover:text-slate-700 ${expanded.has(order.id) ? 'rotate-180' : ''}`}
+										title="Išskleisti"
+										onclick={() => toggleExpanded(order.id)}
+									>
+										<ChevronDown size={14} />
+									</button>
+								</div>
 							</td>
 							<td class="px-3 py-3">
-								<a
-									href={`/uzsakymai/${order.id}`}
-									class="font-semibold text-sky-700 hover:underline">#{order.id}</a
-								>
+								<span class="inline-flex items-center">
+									<a
+										href={`/uzsakymai/${order.id}`}
+										class="font-semibold text-sky-700 hover:underline">#{order.id}</a
+									>
+									<CopyText text={`#${order.id}`} />
+								</span>
 								<div class="text-xs text-slate-400">{order.shop.name || order.shop.code || '—'}</div>
 							</td>
 							<td class="px-3 py-3">
@@ -448,19 +468,59 @@
 								<div>{shippingMethodLabel(order.shipping_method)}</div>
 								<div class="mt-1"><StatusBadge kind="delivery" value={order.delivery_status} /></div>
 							</td>
-							<td class="px-3 py-3">
-								<div class="font-medium text-slate-800">{order.matched_items_count} vnt.</div>
-								{#if order.matched_lines[0]}
-									<div class="max-w-56 truncate text-xs text-slate-400">
-										{order.matched_lines[0].name}
-									</div>
-								{/if}
-							</td>
 							<td class="px-3 py-3 font-semibold text-slate-900">
 								{formatMoney(order.amount_gross, order.amount_currency)}
 							</td>
 							<td class="px-3 py-3 text-slate-500">{formatDateTime(order.created_at)}</td>
 						</tr>
+						{#if expanded.has(order.id)}
+							<tr class="border-t border-slate-100 bg-slate-50/60">
+								<td colspan="8" class="px-4 py-3">
+									<div class="grid gap-3 md:grid-cols-[minmax(0,240px)_1fr]">
+										<div class="text-xs leading-6 text-slate-600">
+											<div class="mb-1 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">Klientas</div>
+											<div class="font-medium text-slate-800">{order.customer.full_name || '—'}</div>
+											{#if order.customer.email}
+												<div><CopyText text={order.customer.email} /></div>
+											{/if}
+											{#if order.customer.phone}
+												<div><CopyText text={order.customer.phone} mono /></div>
+											{/if}
+											<div class="mt-1 text-slate-400">{order.matched_items_count} vnt.</div>
+										</div>
+										<div class="overflow-x-auto">
+											<table class="min-w-full text-left text-xs">
+												<thead class="text-[11px] tracking-wide text-slate-400 uppercase">
+													<tr>
+														<th class="pr-3 pb-1 font-medium">Prekė</th>
+														<th class="pr-3 pb-1 font-medium">SKU</th>
+														<th class="pr-3 pb-1 font-medium">Kiekis</th>
+														<th class="pb-1 font-medium">Sandėlis</th>
+													</tr>
+												</thead>
+												<tbody>
+													{#each order.matched_lines as line (line.order_line_id)}
+														<tr class="border-t border-slate-200/70">
+															<td class="py-1.5 pr-3">
+																<div class="flex items-center gap-2">
+																	{#if line.thumbnail_url}
+																		<img src={line.thumbnail_url} alt="" class="h-8 w-8 rounded border border-slate-200 object-cover" loading="lazy" />
+																	{/if}
+																	<CopyText text={line.name} class="max-w-72" />
+																</div>
+															</td>
+															<td class="py-1.5 pr-3"><CopyText text={line.sku || line.variant_sku || '—'} mono /></td>
+															<td class="py-1.5 pr-3">{line.qty}</td>
+															<td class="py-1.5">{line.warehouse_name || line.warehouse_code || '—'}</td>
+														</tr>
+													{/each}
+												</tbody>
+											</table>
+										</div>
+									</div>
+								</td>
+							</tr>
+						{/if}
 					{/each}
 				</tbody>
 			</table>

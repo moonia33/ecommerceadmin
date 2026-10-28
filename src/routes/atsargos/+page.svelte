@@ -7,6 +7,7 @@
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
 	import Spinner from '#lib/components/Spinner.svelte';
+	import CopyText from '#lib/components/CopyText.svelte';
 	import {
 		adjustInventoryItem,
 		ApiError,
@@ -291,7 +292,7 @@
 								<td class="px-4 py-3 text-xs whitespace-nowrap text-slate-500">
 									{new Date(a.created_at).toLocaleString('lt-LT')}
 								</td>
-								<td class="px-4 py-3 font-mono text-xs text-slate-700">{a.sku}</td>
+								<td class="px-4 py-3 font-mono text-xs text-slate-700"><CopyText text={a.sku} mono /></td>
 								<td class="px-4 py-3 text-slate-700">
 									{#if a.product_id}
 										<a href={`/prekes/${a.product_id}`} class="text-sky-700 hover:underline"
@@ -354,7 +355,7 @@
 				<tbody>
 					{#each items as item (item.id)}
 						<tr class="border-t border-slate-100 hover:bg-slate-50">
-							<td class="px-4 py-3 font-mono text-xs text-slate-700">{item.sku}</td>
+							<td class="px-4 py-3 font-mono text-xs text-slate-700"><CopyText text={item.sku} mono /></td>
 							<td class="px-4 py-3">
 								<div class="flex items-center gap-3">
 									{#if item.thumbnail_url}
