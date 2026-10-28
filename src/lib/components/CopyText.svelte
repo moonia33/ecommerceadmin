@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { Check, Copy } from '@lucide/svelte';
 
-	let { text, class: cls = '', mono = false } = $props<{
+	let { text, class: cls = '', mono = false, iconOnly = false } = $props<{
 		text: string;
 		class?: string;
 		mono?: boolean;
+		iconOnly?: boolean;
 	}>();
 
 	let copied = $state(false);
@@ -25,7 +26,9 @@
 </script>
 
 <span class={`group/ct inline-flex max-w-full items-center gap-1 ${cls}`}>
-	<span class={`truncate ${mono ? 'font-mono' : ''}`}>{text}</span>
+	{#if !iconOnly}
+		<span class={`truncate ${mono ? 'font-mono' : ''}`}>{text}</span>
+	{/if}
 	<button
 		type="button"
 		class={`shrink-0 rounded p-0.5 transition-colors ${

@@ -297,7 +297,7 @@
 		<div class="mt-3 grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-3">
 			<input
 				class={inputClass}
-				placeholder="Prekė (SKU arba pavadinimas)"
+				placeholder="Prekė: SKU, pavadinimas arba EAN (barkodas)"
 				bind:value={productQ}
 				onkeydown={(e) => e.key === 'Enter' && applyFilters()}
 			/>
@@ -454,7 +454,7 @@
 										href={`/uzsakymai/${order.id}`}
 										class="font-semibold text-sky-700 hover:underline">#{order.id}</a
 									>
-									<CopyText text={`#${order.id}`} />
+									<CopyText text={String(order.id)} iconOnly />
 								</span>
 								<div class="text-xs text-slate-400">{order.shop.name || order.shop.code || '—'}</div>
 							</td>
@@ -486,7 +486,9 @@
 											{#if order.customer.phone}
 												<div><CopyText text={order.customer.phone} mono /></div>
 											{/if}
-											<div class="mt-1 text-slate-400">{order.matched_items_count} vnt.</div>
+											<div class="mt-2 inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-1 font-semibold text-slate-800 ring-1 ring-slate-200">
+												Iš viso: {order.matched_lines.reduce((a, l) => a + (l.qty || 0), 0) || order.matched_items_count} vnt.
+											</div>
 										</div>
 										<div class="overflow-x-auto">
 											<table class="min-w-full text-left text-xs">
@@ -494,6 +496,7 @@
 													<tr>
 														<th class="pr-3 pb-1 font-medium">Prekė</th>
 														<th class="pr-3 pb-1 font-medium">SKU</th>
+														<th class="pr-3 pb-1 font-medium">EAN</th>
 														<th class="pr-3 pb-1 font-medium">Kiekis</th>
 														<th class="pb-1 font-medium">Sandėlis</th>
 													</tr>
@@ -510,7 +513,8 @@
 																</div>
 															</td>
 															<td class="py-1.5 pr-3"><CopyText text={line.sku || line.variant_sku || '—'} mono /></td>
-															<td class="py-1.5 pr-3">{line.qty}</td>
+															<td class="py-1.5 pr-3">{#if line.barcode}<CopyText text={line.barcode} mono />{:else}—{/if}</td>
+															<td class="py-1.5 pr-3 font-semibold">{line.qty}</td>
 															<td class="py-1.5">{line.warehouse_name || line.warehouse_code || '—'}</td>
 														</tr>
 													{/each}
