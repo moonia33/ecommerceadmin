@@ -82,6 +82,56 @@
 	let warehouses = $state<OpsWarehouse[]>([]);
 	let stockAdd = $state<{ variant_id: number | ''; warehouse_id: number | ''; qty: string }>({ variant_id: '', warehouse_id: '', qty: '0' });
 	let stockAddBusy = $state(false);
+	let newOptionTypeId = $state<number | ''>('');
+	let optTypesBusy = $state(false);
+
+	async function saveOptionTypes() {
+		if (!product || optTypesBusy) return;
+		optTypesBusy = true;
+		try {
+			const updated = await updateCatalogProduct(product.id, {
+				option_type_ids: productOptionTypes.map((ot) => ot.id)
+			});
+			product = updated;
+			pushToast('success', 'Opcijų tipai išsaugoti.');
+		} catch (e) {
+			errorMsg(e, 'Nepavyko išsaugoti opcijų tipų.');
+		} finally {
+			optTypesBusy = false;
+		}
+	}
+
+	async function addOptionType() {
+		if (!product || newOptionTypeId === '' || optTypesBusy) return;
+		const ids = [...productOptionTypes.map((ot) => ot.id), Number(newOptionTypeId)];
+		optTypesBusy = true;
+		try {
+			const updated = await updateCatalogProduct(product.id, { option_type_ids: ids });
+			product = updated;
+			newOptionTypeId = '';
+			pushToast('success', 'Opcijos tipas pridėtas.');
+		} catch (e) {
+			errorMsg(e, 'Nepavyko pridėti opcijos tipo.');
+		} finally {
+			optTypesBusy = false;
+		}
+	}
+
+	async function removeOptionType(otId: number) {
+		if (!product || optTypesBusy) return;
+		optTypesBusy = true;
+		try {
+			const updated = await updateCatalogProduct(product.id, {
+				option_type_ids: productOptionTypes.map((ot) => ot.id).filter((id) => id !== otId)
+			});
+			product = updated;
+			pushToast('success', 'Opcijos tipas pašalintas.');
+		} catch (e) {
+			errorMsg(e, 'Nepavyko pašalinti opcijos tipo.');
+		} finally {
+			optTypesBusy = false;
+		}
+	}
 
 	async function addStockRow() {
 		if (!product || !stockAdd.variant_id || !stockAdd.warehouse_id || stockAddBusy) return;
@@ -829,7 +879,7 @@
 				<input class={`${inputClass} w-44`} placeholder="Pavadinimas" bind:value={newVariant.name} />
 				<input class={`${inputClass} w-24`} placeholder="Kaina €" bind:value={newVariant.price_eur} />
 				<input class={`${inputClass} w-24`} placeholder="Savikaina €" bind:value={newVariant.cost_eur} />
-				<button type="button" class="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50" disabled={!newVariant.sku.trim()} onclick={() => void addVariant()}>
+				<button type="button" class="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50" disabled={!newVariant.sku.trim() || (productOptionTypes.length > 0 && productOptionTypes.some((ot) => !newVariantOpts[ot.id]))} onclick={() => void addVariant()}>
 					<Plus size={13} /> Pridėti
 				</button>
 			</div>
@@ -1125,6 +1175,29 @@
 				<p class="mt-0.5 text-xs text-slate-400">
 					„Outlet“ matomumas — išpardavimo skyriuje. Likutis koreguojamas „Atsargos“ puslapyje.
 				</p>
+			</div>
+			<div class="flex flex-wrap items-center gap-2 border-b border-slate-200 px-5 py-3">
+				<select class={`${inputClass} w-56`} bind:value={stockAdd.variant_id} aria-label="Variantas">
+					<option value="">Variantas…</option>
+					{#each product.variants as v (v.id)}
+						<option value={v.id}>{v.sku}{v.name ? ' — ' + v.name : ''}</option>
+					{/each}
+				</select>
+				<select class={`${inputClass} w-48`} bind:value={stockAdd.warehouse_id} aria-label="Sandėlis">
+					<option value="">Sandėlis…</option>
+					{#each warehouses as wh (wh.id)}
+						<option value={wh.id}>{wh.code}{wh.name ? ' — ' + wh.name : ''}</option>
+					{/each}
+				</select>
+				<input class={`${inputClass} w-20`} placeholder="Kiekis" type="number" min="0" bind:value={stockAdd.qty} aria-label="Kiekis" />
+				<button
+					type="button"
+					class="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+					disabled={!stockAdd.variant_id || !stockAdd.warehouse_id || stockAddBusy}
+					onclick={() => void addStockRow()}
+				>
+					<Plus size={13} /> Pridėti sandėlį
+				</button>
 			</div>
 			{#if product.offers.length === 0}
 				<EmptyState title="Sandėlio įrašų nėra" />
