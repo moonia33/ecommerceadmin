@@ -235,7 +235,10 @@
 		}
 	}
 
-	onMount(() => void load(1));
+	onMount(() => {
+		fetchWarehouses().then((w) => (warehouses = w)).catch(() => {});
+		void load(1);
+	});
 
 	const selectClass =
 		'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-sky-500 focus:ring-2 focus:ring-sky-200 focus:outline-none';
@@ -288,22 +291,22 @@
 			<option value="courier">Kurjeris</option>
 			<option value="pickup">Paštomatas / atsiėmimas</option>
 		</select>
-		<div class="flex items-center gap-2">
+		<div class="flex min-w-0 items-center gap-2 xl:col-span-2">
 			<input
 				type="date"
-				class={`${inputClass} w-full`}
+				class={`${inputClass} min-w-0 flex-1`}
 				bind:value={dateFrom}
 				aria-label="Data nuo"
 			/>
-			<span class="text-sm text-slate-400">–</span>
+			<span class="shrink-0 text-sm text-slate-400">–</span>
 			<input
 				type="date"
-				class={`${inputClass} w-full`}
+				class={`${inputClass} min-w-0 flex-1`}
 				bind:value={dateTo}
 				aria-label="Data iki"
 			/>
 		</div>
-		<div class="flex items-center gap-2 xl:col-span-2">
+		<div class="flex items-center gap-2">
 			<button
 				type="button"
 				class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
