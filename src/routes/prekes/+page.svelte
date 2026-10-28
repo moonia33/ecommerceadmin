@@ -30,6 +30,7 @@
 
 	let q = $state('');
 	let isActive = $state('');
+	let categoryId = $state('');
 
 	// Kategorijų lookup (inline redagavimui + bulk priskyrimui)
 	let categories = $state<OpsLookupOption[]>([]);
@@ -59,6 +60,7 @@
 			const res = await fetchCatalogProducts({
 				q: q.trim(),
 				is_active: isActive,
+				category_id: categoryId || undefined,
 				page: pageNum,
 				page_size: PAGE_SIZE
 			});
@@ -165,6 +167,12 @@
 			onkeydown={(e) => e.key === 'Enter' && load(1)}
 		/>
 	</div>
+	<select class={selectClass} bind:value={categoryId} aria-label="Kategorija" onchange={() => void load(1)}>
+		<option value="">Visos kategorijos</option>
+		{#each categories as cat (cat.id)}
+			<option value={cat.id}>{' '.repeat(Math.min(cat.depth, 6) * 2)}{cat.name}</option>
+		{/each}
+	</select>
 	<select class={selectClass} bind:value={isActive} aria-label="Aktyvumas">
 		<option value="">Visos</option>
 		<option value="true">Aktyvios</option>
@@ -183,6 +191,7 @@
 		onclick={() => {
 			q = '';
 			isActive = '';
+			categoryId = '';
 			void load(1);
 		}}
 	>
@@ -297,23 +306,19 @@
 							<td class="px-3 py-3 font-mono text-xs text-slate-600">{product.sku}</td>
 							<td class="px-3 py-3 text-slate-700">{product.brand_name || '—'}</td>
 							<td class="px-3 py-3">
-							<select
-								class="max-w-52 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-200 focus:outline-none disabled:opacity-50"
-								value={product.category_id ?? ''}
+							<input
+								list="cat-list"
+								class="w-52 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-200 focus:outline-none disabled:opacity-50"
+								value={product.category_name || ''}
+								placeholder="— be kategorijos —"
 								disabled={catBusyId !== null}
 								onchange={(e) => {
-									const v = (e.currentTarget as HTMLSelectElement).value;
-									void assignCategory(product.id, v === '' ? null : Number(v));
+									const v = (e.currentTarget as HTMLInputElement).value.trim().toLowerCase();
+									const cat = categories.find((c) => c.name.toLowerCase() === v);
+									if (v === '' || cat) void assignCategory(product.id, cat?.id ?? null);
 								}}
 								aria-label={`Kategorija: ${product.name}`}
-							>
-								<option value="">— be kategorijos —</option>
-								{#each categories as cat (cat.id)}
-									<option value={cat.id}>
-										{' '.repeat(Math.min(cat.depth, 6) * 2)}{cat.name}
-									</option>
-								{/each}
-							</select>
+							/>
 						</td>
 							<td class="px-3 py-3 text-right text-slate-600">{product.variants_count}</td>
 							<td class="px-3 py-3">
@@ -354,6 +359,12 @@
 		</div>
 	{/if}
 </section>
+
+<datalist id="cat-list">
+	{#each categories as cat (cat.id)}
+		<option value={cat.name}></option>
+	{/each}
+</datalist>
 
 <Modal
 	bind:open={
