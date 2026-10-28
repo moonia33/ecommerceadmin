@@ -311,9 +311,14 @@
 	async function load() {
 		loading = true;
 		try {
-			const [p, l] = await Promise.all([fetchCatalogProduct(productId), fetchCatalogLookups()]);
+			const [p, l, wh] = await Promise.all([
+				fetchCatalogProduct(productId),
+				fetchCatalogLookups(),
+				fetchWarehouses().catch(() => [])
+			]);
 			product = p;
 			lookups = l;
+			warehouses = wh;
 			hydrate();
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Nepavyko įkelti prekės.');
@@ -873,6 +878,32 @@
 				<p class="mt-0.5 text-xs text-slate-400">
 					Kombinacijos (dydis, spalva ir pan.) matomos ir keičiamos tiesiogiai. Kainos be PVM.
 				</p>
+			</div>
+			<div class="flex flex-wrap items-center gap-2 border-b border-slate-200 px-5 py-3">
+				<span class="text-xs font-semibold tracking-wide text-slate-500 uppercase">Kombinacijų tipai:</span>
+				{#each productOptionTypes as ot (ot.id)}
+					<span class="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+						{ot.name}
+						<button type="button" class="text-sky-400 hover:text-rose-600" title="Pašalinti tipą" onclick={() => void removeOptionType(ot.id)}>×</button>
+					</span>
+				{/each}
+				{#if productOptionTypes.length === 0}
+					<span class="text-xs text-slate-400">nepriskirta — variantas bus be kombinacijų</span>
+				{/if}
+				<select class={`${inputClass} w-44`} bind:value={newOptionTypeId} aria-label="Opcijos tipas">
+					<option value="">Pridėti tipą…</option>
+					{#each (lookups?.option_types ?? []).filter((o) => !productOptionTypes.some((p) => p.id === o.id)) as o (o.id)}
+						<option value={o.id}>{o.name}</option>
+					{/each}
+				</select>
+				<button
+					type="button"
+					class="inline-flex items-center gap-1 rounded-lg border border-sky-200 px-2.5 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-50 disabled:opacity-50"
+					disabled={newOptionTypeId === '' || optTypesBusy}
+					onclick={() => void addOptionType()}
+				>
+					<Plus size={12} /> Pridėti
+				</button>
 			</div>
 			<div class="flex flex-wrap items-end gap-2 border-b border-slate-200 bg-slate-50 px-5 py-3">
 				<input class={`${inputClass} w-36`} placeholder="SKU*" bind:value={newVariant.sku} />
