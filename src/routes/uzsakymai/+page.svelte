@@ -12,11 +12,15 @@
 	import {
 		ApiError,
 		createOrder,
+		fetchOrderPickList,
 		fetchOrders,
+		fetchWarehouses,
 		generateShipmentLabelsBulk,
 		mergeOrders,
 		ordersBulkAction,
-		type OpsOrderListItem
+		type OpsOrderListItem,
+		type OpsPickListRow,
+		type OpsWarehouse
 	} from '#lib/api/client';
 	import { formatDateTime, formatMoney } from '#lib/format';
 	import { shippingMethodLabel } from '#lib/labels';
@@ -30,6 +34,24 @@
 	let page = $state(1);
 	let selected = $state<Set<number>>(new Set());
 	let expanded = $state<Set<number>>(new Set());
+	let warehouses = $state<OpsWarehouse[]>([]);
+	let viewMode = $state<'orders' | 'pick'>('orders');
+	let pickWarehouse = $state('');
+	let pickRows = $state<OpsPickListRow[]>([]);
+	let pickLoading = $state(false);
+
+	async function loadPickList() {
+		if (!pickWarehouse) { pickRows = []; return; }
+		pickLoading = true;
+		try {
+			const res = await fetchOrderPickList(pickWarehouse);
+			pickRows = res.rows;
+		} catch (e) {
+			pushToast('error', e instanceof ApiError ? e.message : 'Nepavyko įkelti sąrašo.');
+		} finally {
+			pickLoading = false;
+		}
+	}
 
 	// Filtrų forma
 	let q = $state('');
@@ -301,12 +323,12 @@
 				bind:value={productQ}
 				onkeydown={(e) => e.key === 'Enter' && applyFilters()}
 			/>
-			<input
-				class={inputClass}
-				placeholder="Tiekėjas / sandėlio kodas (pvz. remote_wh_1)"
-				bind:value={supplierCode}
-				onkeydown={(e) => e.key === 'Enter' && applyFilters()}
-			/>
+			<select class={inputClass} bind:value={supplierCode} onchange={applyFilters} aria-label="Sandėlis">
+				<option value="">Visi sandėliai</option>
+				{#each warehouses as wh (wh.id)}
+					<option value={wh.code}>{wh.code}{wh.name ? ` — ${wh.name}` : ''}{wh.kind === 'remote' ? ' (nuotolinis)' : ''}</option>
+				{/each}
+			</select>
 			<input
 				class={inputClass}
 				placeholder="Gamintojas (brand)"
@@ -395,7 +417,82 @@
 {/if}
 
 <!-- Lentelė -->
-<section class="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+<div class="mt-4 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-sm shadow-sm">
+	<button
+		type="button"
+		class={`rounded-md px-3 py-1.5 font-medium ${viewMode === 'orders' ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+		onclick={() => (viewMode = 'orders')}
+	>Užsakymai</button>
+	<button
+		type="button"
+		class={`rounded-md px-3 py-1.5 font-medium ${viewMode === 'pick' ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+		onclick={() => { viewMode = 'pick'; if (pickRows.length === 0 && pickWarehouse) void loadPickList(); }}
+	>Pagal prekę (receiving)</button>
+</div>
+
+{#if viewMode === 'pick'}
+	<section class="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+		<div class="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-3">
+			<h2 class="text-base font-semibold text-slate-900">Receiving / pick sąrašas</h2>
+			<select class={inputClass + ' w-64'} bind:value={pickWarehouse} onchange={() => void loadPickList()} aria-label="Sandėlis">
+				<option value="">Pasirinkite sandėlį…</option>
+				{#each warehouses as wh (wh.id)}
+					<option value={wh.code}>{wh.code}{wh.name ? ` — ${wh.name}` : ''}{wh.kind === 'remote' ? ' (nuotolinis)' : ''}</option>
+				{/each}
+			</select>
+		</div>
+		{#if pickLoading}
+			<Spinner label="Kraunamas sąrašas…" />
+		{:else if !pickWarehouse}
+			<EmptyState title="Pasirinkite sandėlį" hint="Pasirinkite sandėlį, iš kurio atvyko arba atvyks prekės." />
+		{:else if pickRows.length === 0}
+			<EmptyState title="Nėra laukiančių eilučių" hint="Šiam sandėliui atvirų apmokėtų užsakymų eilučių nerasta." />
+		{:else}
+			<div class="overflow-x-auto">
+				<table class="min-w-full text-left text-sm">
+					<thead class="bg-slate-50 text-xs tracking-wide text-slate-500 uppercase">
+						<tr>
+							<th class="px-4 py-3 font-medium">Prekė</th>
+							<th class="px-4 py-3 font-medium">SKU</th>
+							<th class="px-4 py-3 font-medium">EAN</th>
+							<th class="px-4 py-3 font-medium text-right">Reikia vnt.</th>
+							<th class="px-4 py-3 font-medium">Užsakymai</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each pickRows as row (row.variant_id ?? row.sku)}
+							<tr class="border-t border-slate-100">
+								<td class="px-4 py-3">
+									<div class="flex items-center gap-2">
+										{#if row.thumbnail_url}
+											<img src={row.thumbnail_url} alt="" class="h-9 w-9 rounded border border-slate-200 object-cover" loading="lazy" />
+										{/if}
+										<CopyText text={row.name || '—'} class="max-w-80" />
+									</div>
+								</td>
+								<td class="px-4 py-3"><CopyText text={row.sku || '—'} mono /></td>
+								<td class="px-4 py-3">{#if row.barcode}<CopyText text={row.barcode} mono />{:else}—{/if}</td>
+								<td class="px-4 py-3 text-right text-base font-bold text-slate-900">{row.total_qty}</td>
+								<td class="px-4 py-3">
+									<div class="flex flex-wrap gap-1.5">
+										{#each row.orders as o (o.order_id)}
+											<a href={`/uzsakymai/${o.order_id}`} class="rounded-md bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100">
+												#{o.order_id} ×{o.qty}
+											</a>
+										{/each}
+									</div>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</section>
+{/if}
+
+{#if viewMode === 'orders'}
+<section class="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 	{#if loading}
 		<Spinner label="Kraunami užsakymai…" />
 	{:else if orders.length === 0}
@@ -534,6 +631,7 @@
 		</div>
 	{/if}
 </section>
+{/if}
 
 <!-- Bulk modalas -->
 <Modal

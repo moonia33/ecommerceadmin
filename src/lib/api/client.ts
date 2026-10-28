@@ -52,6 +52,25 @@ export type OpsOrderLine = {
 	line_total_gross: string;
 };
 
+export type OpsPickListOrder = {
+	order_id: number;
+	qty: number;
+};
+
+export type OpsPickListRow = {
+	variant_id: number | null;
+	sku: string;
+	barcode: string;
+	name: string;
+	thumbnail_url: string;
+	total_qty: number;
+	orders: OpsPickListOrder[];
+};
+
+export function fetchOrderPickList(warehouseCode: string): Promise<{ warehouse_code: string; rows: OpsPickListRow[] }> {
+	return get('/api/v1/ops/orders/pick-list', { warehouse_code: warehouseCode });
+}
+
 export type OpsOrderListItem = {
 	id: number;
 	shop: OpsShop;
