@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { marked } from 'marked';
-	import { uploadProductImage, deleteProductImage, createCatalogVariant, deleteCatalogVariant, adjustInventoryItem } from '#lib/api/client';
+	import { uploadProductImage, deleteProductImage, createCatalogVariant, deleteCatalogVariant, adjustInventoryItem, createInventoryItem, fetchWarehouses, type OpsWarehouse } from '#lib/api/client';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import {
@@ -79,6 +79,28 @@
 	let imgBusy = $state(false);
 	let stockDeltas = $state<Record<number, string>>({});
 	let newVariantOpts = $state<Record<number, number | ''>>({});
+	let warehouses = $state<OpsWarehouse[]>([]);
+	let stockAdd = $state<{ variant_id: number | ''; warehouse_id: number | ''; qty: string }>({ variant_id: '', warehouse_id: '', qty: '0' });
+	let stockAddBusy = $state(false);
+
+	async function addStockRow() {
+		if (!product || !stockAdd.variant_id || !stockAdd.warehouse_id || stockAddBusy) return;
+		stockAddBusy = true;
+		try {
+			await createInventoryItem({
+				variant_id: Number(stockAdd.variant_id),
+				warehouse_id: Number(stockAdd.warehouse_id),
+				qty: Math.max(0, Math.trunc(Number(stockAdd.qty) || 0))
+			});
+			stockAdd = { variant_id: '', warehouse_id: '', qty: '0' };
+			await load();
+			pushToast('success', 'Sandėlio likutis pridėtas.');
+		} catch (e) {
+			errorMsg(e, 'Nepavyko pridėti likučio.');
+		} finally {
+			stockAddBusy = false;
+		}
+	}
 
 	const MD_TOOLS: [string, string][] = [
 		['**tekstas**','B'],

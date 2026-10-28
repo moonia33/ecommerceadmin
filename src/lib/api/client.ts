@@ -774,6 +774,15 @@ export function fetchInventoryItems(params: QueryParams = {}): Promise<Paged<Ops
 	return get<Paged<OpsInventoryItem>>('/api/v1/ops/inventory/items', { page_size: 50, ...params });
 }
 
+export function createInventoryItem(payload: {
+	variant_id: number;
+	warehouse_id: number;
+	qty?: number;
+	offer_visibility?: string;
+}): Promise<OpsInventoryItem> {
+	return post<OpsInventoryItem>('/api/v1/ops/inventory/items', payload);
+}
+
 export function adjustInventoryItem(
 	itemId: number | string,
 	payload: { delta: number; reason_code: string; comment?: string; confirm_remote?: boolean }

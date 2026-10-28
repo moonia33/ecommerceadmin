@@ -187,6 +187,13 @@
 	{#snippet actions()}
 		<button
 			type="button"
+			class="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+			onclick={() => (createOpen = true)}
+		>
+			+ Pridėti prekę
+		</button>
+		<button
+			type="button"
 			class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
 			onclick={() => void load()}
 		>
