@@ -910,6 +910,22 @@
 				<input class={`${inputClass} w-44`} placeholder="Pavadinimas" bind:value={newVariant.name} />
 				<input class={`${inputClass} w-24`} placeholder="Kaina €" bind:value={newVariant.price_eur} />
 				<input class={`${inputClass} w-24`} placeholder="Savikaina €" bind:value={newVariant.cost_eur} />
+				{#each productOptionTypes as ot (ot.id)}
+					<select
+						class={`${inputClass} w-32`}
+						value={newVariantOpts[ot.id] ?? ''}
+						onchange={(e) => {
+							const val = (e.currentTarget as HTMLSelectElement).value;
+							newVariantOpts = { ...newVariantOpts, [ot.id]: val === '' ? '' : Number(val) };
+						}}
+						aria-label={ot.name}
+					>
+						<option value="">{ot.name}…</option>
+						{#each ot.values as ov (ov.id)}
+							<option value={ov.id}>{ov.label}</option>
+						{/each}
+					</select>
+				{/each}
 				<button type="button" class="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50" disabled={!newVariant.sku.trim() || (productOptionTypes.length > 0 && productOptionTypes.some((ot) => !newVariantOpts[ot.id]))} onclick={() => void addVariant()}>
 					<Plus size={13} /> Pridėti
 				</button>
