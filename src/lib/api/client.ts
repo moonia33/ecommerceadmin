@@ -292,6 +292,7 @@ export type OpsCatalogOffer = {
 	variant_sku: string;
 	warehouse_code: string;
 	warehouse_name: string;
+	warehouse_kind: string;
 	qty_on_hand: number;
 	qty_reserved: number;
 	qty_available: number;
@@ -835,6 +836,17 @@ export function updateCatalogVariant(
 	return patch<OpsCatalogVariant>(`/api/v1/ops/catalog/variants/${variantId}`, payload);
 }
 
+export function createCatalogProduct(payload: {
+	name: string;
+	sku?: string;
+	brand_id?: number | null;
+	category_id?: number | null;
+	group_id?: number | null;
+	price_eur?: string;
+}) {
+	return post<{ id: number }>('/api/v1/ops/catalog/products', payload);
+}
+
 export function uploadProductImage(productId: number | string, file: File) {
 	const fd = new FormData();
 	fd.append('file', file);
@@ -847,7 +859,7 @@ export function deleteProductImage(imageId: number | string) {
 
 export function createCatalogVariant(
 	productId: number | string,
-	payload: { sku: string; name?: string; barcode?: string; price_eur?: string; cost_eur?: string }
+	payload: { sku: string; name?: string; barcode?: string; price_eur?: string; cost_eur?: string; option_value_ids?: number[] }
 ) {
 	return post<OpsCatalogVariant>(`/api/v1/ops/catalog/products/${productId}/variants`, payload);
 }

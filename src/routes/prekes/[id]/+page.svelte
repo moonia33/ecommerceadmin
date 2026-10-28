@@ -78,6 +78,7 @@
 	let newVariant = $state({ sku: '', name: '', barcode: '', price_eur: '', cost_eur: '' });
 	let imgBusy = $state(false);
 	let stockDeltas = $state<Record<number, string>>({});
+	let newVariantOpts = $state<Record<number, number | ''>>({});
 
 	const MD_TOOLS: [string, string][] = [
 		['**tekstas**','B'],
@@ -116,10 +117,14 @@
 	async function addVariant() {
 		if (!product || !newVariant.sku.trim()) return;
 		try {
-			const v = await createCatalogVariant(product.id, newVariant);
+			const v = await createCatalogVariant(product.id, {
+				...newVariant,
+				option_value_ids: Object.values(newVariantOpts).filter((x): x is number => typeof x === 'number')
+			});
 			product.variants = [...product.variants, v];
 			variantDrafts[v.id] = { name: v.name, barcode: v.barcode, price_eur: v.price_eur, cost_eur: v.cost_eur, is_active: v.is_active, weight_g: String(v.weight_g ?? ''), length_cm: String(v.length_cm ?? ''), width_cm: String(v.width_cm ?? ''), height_cm: String(v.height_cm ?? ''), options: {} };
 			newVariant = { sku: '', name: '', barcode: '', price_eur: '', cost_eur: '' };
+			newVariantOpts = {};
 			pushToast('success', 'Variantas sukurtas.');
 		} catch (e) { errorMsg(e, 'Nepavyko.'); }
 	}
@@ -325,6 +330,12 @@
 		if (!t) return null;
 		const n = Number.parseFloat(t);
 		return Number.isFinite(n) ? n : null;
+	}
+
+	async function saveCurrent() {
+		if (tab === 'bendra') return saveGeneral();
+		if (tab === 'turinys' || tab === 'galerija') return saveContent();
+		if (tab === 'savybes') return saveFeatures();
 	}
 
 	async function saveVariant(variantId: number) {
@@ -791,6 +802,15 @@
 					Kombinacijos (dydis, spalva ir pan.) matomos ir keičiamos tiesiogiai. Kainos be PVM.
 				</p>
 			</div>
+			<div class="flex flex-wrap items-end gap-2 border-b border-slate-200 bg-slate-50 px-5 py-3">
+				<input class={`${inputClass} w-36`} placeholder="SKU*" bind:value={newVariant.sku} />
+				<input class={`${inputClass} w-44`} placeholder="Pavadinimas" bind:value={newVariant.name} />
+				<input class={`${inputClass} w-24`} placeholder="Kaina €" bind:value={newVariant.price_eur} />
+				<input class={`${inputClass} w-24`} placeholder="Savikaina €" bind:value={newVariant.cost_eur} />
+				<button type="button" class="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50" disabled={!newVariant.sku.trim()} onclick={() => void addVariant()}>
+					<Plus size={13} /> Pridėti
+				</button>
+			</div>
 			{#if product.variants.length === 0}
 				<EmptyState title="Variantų nėra" />
 			{:else}
@@ -878,14 +898,24 @@
 											/>
 										</td>
 										<td class="px-4 py-3">
-											<button
-												type="button"
-												class="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
-												disabled={busy}
-												onclick={() => void saveVariant(variant.id)}
-											>
-												<Check size={13} /> Saugoti
-											</button>
+											<div class="flex items-center gap-1">
+												<button
+													type="button"
+													class="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+													title="Ištrinti"
+													onclick={() => void removeVariant(variant)}
+												>
+													<Trash2 size={14} />
+												</button>
+												<button
+													type="button"
+													class="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
+													disabled={busy}
+													onclick={() => void saveVariant(variant.id)}
+												>
+													<Check size={13} /> Saugoti
+												</button>
+											</div>
 										</td>
 									</tr>
 									{#if expandedVariant === variant.id}
@@ -1133,6 +1163,12 @@
 											<option value="OUTLET">Outlet</option>
 										</select>
 									</td>
+									<td class="px-4 py-3">
+										<div class="flex items-center gap-1">
+											<input class="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs" placeholder="±0" bind:value={stockDeltas[offer.inventory_item_id]} />
+											<button type="button" class="rounded bg-slate-700 px-2 py-0.5 text-xs text-white hover:bg-slate-600" onclick={() => void adjustStock(offer.inventory_item_id, offer.warehouse_kind)}>OK</button>
+										</div>
+									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -1145,15 +1181,23 @@
 	<!-- ================= GALERIJA ================= -->
 	{#if tab === 'galerija'}
 		<section class="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-			<h2 class="text-base font-semibold text-slate-900">
+			<div class="flex items-center justify-between">			<h2 class="text-base font-semibold text-slate-900">
 				Galerija <span class="text-slate-400">({product.images.length})</span>
 			</h2>
+				<label class={"inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500" + (imgBusy ? " opacity-50 pointer-events-none" : "")}>
+					<ImagePlus size={14} /> {imgBusy ? 'Keliamas…' : 'Įkelti nuotrauką'}
+					<input type="file" accept="image/jpeg,image/png,image/webp,image/avif" class="hidden" onchange={uploadImage} />
+				</label>
+			</div>
 			{#if product.images.length === 0}
 				<p class="mt-4 text-sm text-slate-400">Nuotraukų nėra.</p>
 			{:else}
 				<div class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
 					{#each product.images as img (img.id)}
-						<figure class="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+						<figure class="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+							<button type="button" class="absolute right-1 top-1 z-10 rounded-full bg-white/90 p-1 text-slate-500 shadow hover:text-red-600" title="Ištrinti" onclick={() => void removeImage(img.id)}>
+								<Trash2 size={12} />
+							</button>
 							{#if img.url}
 								<img src={mediaUrl(img.url)} alt={img.alt_text || product.name} class="aspect-square w-full object-cover" />
 							{:else}

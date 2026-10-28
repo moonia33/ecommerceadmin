@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Image as ImageIcon, RotateCcw, Search } from '@lucide/svelte';
+	import { goto } from '$app/navigation';
+	import { Image as ImageIcon, Plus, RotateCcw, Search } from '@lucide/svelte';
 	import Badge from '#lib/components/Badge.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Modal from '#lib/components/Modal.svelte';
@@ -10,6 +11,7 @@
 	import {
 		ApiError,
 		catalogBulkAction,
+		createCatalogProduct,
 		fetchCatalogLookups,
 		fetchCatalogProducts,
 		toggleCatalogProduct,
@@ -43,6 +45,29 @@
 	// Masinio veiksmo patvirtinimas
 	let bulkKind = $state<'' | 'activate_products' | 'deactivate_products' | 'assign_category' | 'assign_group'>('');
 	let bulkCategoryId = $state<number | null>(null);
+	let createOpen = $state(false);
+	let createDraft = $state({ name: '', sku: '', price_eur: '' });
+	let createBusy = $state(false);
+
+	async function createProduct() {
+		if (!createDraft.name.trim() || createBusy) return;
+		createBusy = true;
+		try {
+			const p = await createCatalogProduct({
+				name: createDraft.name.trim(),
+				sku: createDraft.sku.trim() || undefined,
+				price_eur: createDraft.price_eur.trim() || undefined
+			});
+			pushToast('success', 'Prekė sukurta.');
+			createOpen = false;
+			createDraft = { name: '', sku: '', price_eur: '' };
+			goto(`/prekes/${p.id}`);
+		} catch (e) {
+			pushToast('error', e instanceof Error ? e.message : 'Nepavyko sukurti.');
+		} finally {
+			createBusy = false;
+		}
+	}
 	let bulkGroupId = $state<number | null>(null);
 
 	async function assignCategory(productId: number, categoryId: number | null) {
@@ -401,6 +426,32 @@
 		</div>
 	{/if}
 </section>
+
+{#if createOpen}
+	<Modal bind:open={createOpen} title="Nauja prekė">
+		<div class="space-y-3">
+			<div>
+				<label class="text-sm font-medium text-slate-700" for="np-name">Pavadinimas *</label>
+				<input id="np-name" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" bind:value={createDraft.name} />
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label class="text-sm font-medium text-slate-700" for="np-sku">SKU (tuščia = auto)</label>
+					<input id="np-sku" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" bind:value={createDraft.sku} />
+				</div>
+				<div>
+					<label class="text-sm font-medium text-slate-700" for="np-price">Kaina € be PVM</label>
+					<input id="np-price" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" bind:value={createDraft.price_eur} />
+				</div>
+			</div>
+		</div>
+		{#snippet footer()}
+			<button type="button" class="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50" disabled={!createDraft.name.trim() || createBusy} onclick={() => void createProduct()}>
+				Sukurti
+			</button>
+		{/snippet}
+	</Modal>
+{/if}
 
 <datalist id="cat-list">
 	{#each categories as cat (cat.id)}
