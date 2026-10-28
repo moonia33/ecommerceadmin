@@ -411,6 +411,7 @@ export type OpsProductUpdatePayload = {
 	additional_info?: Record<string, unknown>;
 	translations?: OpsProductTranslation[];
 	feature_value_ids?: number[];
+	video_urls?: string[];
 };
 
 export type OpsVariantUpdatePayload = {

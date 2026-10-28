@@ -27,6 +27,7 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
-		"@lucide/svelte": "^1.56.0"
+		"@lucide/svelte": "^1.56.0",
+		"marked": "^18.1.2"
 	}
 }

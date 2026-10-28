@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { marked } from 'marked';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import {
@@ -70,6 +71,8 @@
 	});
 	let translationDrafts = $state<Record<string, OpsProductTranslation>>({});
 	let baseContent = $state({ description: '', seo_title: '', seo_description: '', seo_keywords: '' });
+	let videoUrlsText = $state('');
+	let descPreview = $state(false);
 	let featuresDraft = $state<FeatureDraft[]>([]);
 	let variantDrafts = $state<Record<number, VariantDraft>>({});
 
@@ -180,8 +183,13 @@
 		if (!product || busy) return;
 		busy = true;
 		try {
+			const video_urls = videoUrlsText
+				.split('\n')
+				.map((u) => u.trim())
+				.filter(Boolean);
 			product = await updateCatalogProduct(product.id, {
 				name: form.name,
+				video_urls,
 				slug: form.slug,
 				is_active: form.is_active,
 				brand_id: form.brand_id,
@@ -198,12 +206,32 @@
 		}
 	}
 
+	$effect(() => {
+		if (product) {
+			videoUrlsText = (product.videos ?? [])
+				.filter((v) => v.video_type === 'product')
+				.map((v) => v.url)
+				.join('\n')
+		}
+	});
+
+	const descHtml = $derived(
+		baseContent.description
+			? marked.parse(String(baseContent.description), { async: false, breaks: true })
+			: ''
+	);
+
 	async function saveContent() {
 		if (!product || busy) return;
 		busy = true;
 		try {
+			const video_urls = videoUrlsText
+				.split('\n')
+				.map((u) => u.trim())
+				.filter(Boolean);
 			product = await updateCatalogProduct(product.id, {
 				name: form.name,
+				video_urls,
 				slug: form.slug,
 				description: baseContent.description,
 				seo_title: baseContent.seo_title,
@@ -583,12 +611,29 @@
 						</div>
 					</div>
 					<div class="mt-4">
-						<label class={labelClass} for="t-desc">Aprašymas (Markdown)</label>
-						<textarea
-							id="t-desc"
-							class={`${inputClass} min-h-40 font-mono text-xs`}
-							bind:value={baseContent.description}
-						></textarea>
+						<div class="flex items-center justify-between">
+							<label class={labelClass} for="t-desc">Aprašymas (Markdown)</label>
+							<button
+								type="button"
+								class="text-xs font-medium text-sky-600 hover:text-sky-800"
+								onclick={() => (descPreview = !descPreview)}
+							>
+								{descPreview ? 'Redaguoti' : 'Peržiūra'}
+							</button>
+						</div>
+						{#if descPreview}
+							<div
+								class="prose prose-sm mt-1 min-h-40 max-w-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+							>
+								{@html descHtml}
+							</div>
+						{:else}
+							<textarea
+								id="t-desc"
+								class={`${inputClass} min-h-40 font-mono text-xs`}
+								bind:value={baseContent.description}
+							></textarea>
+						{/if}
 					</div>
 					<h3 class="mt-5 text-sm font-semibold text-slate-800">SEO ({defaultLang.toUpperCase()})</h3>
 					<div class="mt-3 grid gap-4 sm:grid-cols-3">
@@ -1052,6 +1097,15 @@
 					{/each}
 				</div>
 			{/if}
+
+			<div class="mt-6">
+				<h3 class="text-sm font-semibold text-slate-800">Video (YouTube nuorodos — po vieną eilutėje)</h3>
+				<textarea
+					class={`${inputClass} mt-2 min-h-20 font-mono text-xs`}
+					placeholder="https://www.youtube.com/watch?v=..."
+					bind:value={videoUrlsText}
+				></textarea>
+			</div>
 
 			{#if product.videos.length}
 				<h3 class="mt-6 text-sm font-semibold text-slate-800">Video ({product.videos.length})</h3>
