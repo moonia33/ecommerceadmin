@@ -828,8 +828,32 @@ export function fetchCatalogProduct(productId: number | string): Promise<OpsCata
 	return get<OpsCatalogProductDetail>(`/api/v1/ops/catalog/products/${productId}`);
 }
 
-export function fetchCatalogLookups(): Promise<OpsCatalogLookups> {
-	return get<OpsCatalogLookups>('/api/v1/ops/catalog/lookups');
+// Lookups kešas — kategorijos/brandai/features keičiasi retai, o endpoint'as
+// yra sunkiausias per product open. TTL 5 min, dedupe lygiagrečių kvietimų.
+const LOOKUPS_TTL_MS = 5 * 60 * 1000;
+let _lookupsCache: { ts: number; data: OpsCatalogLookups } | null = null;
+let _lookupsPromise: Promise<OpsCatalogLookups> | null = null;
+
+export function fetchCatalogLookups(force = false): Promise<OpsCatalogLookups> {
+	if (!force) {
+		if (_lookupsCache && Date.now() - _lookupsCache.ts < LOOKUPS_TTL_MS) {
+			return Promise.resolve(_lookupsCache.data);
+		}
+		if (_lookupsPromise) return _lookupsPromise;
+	}
+	_lookupsPromise = get<OpsCatalogLookups>('/api/v1/ops/catalog/lookups')
+		.then((data) => {
+			_lookupsCache = { ts: Date.now(), data };
+			return data;
+		})
+		.finally(() => {
+			_lookupsPromise = null;
+		});
+	return _lookupsPromise;
+}
+
+export function invalidateCatalogLookups() {
+	_lookupsCache = null;
 }
 
 export function updateCatalogProduct(
