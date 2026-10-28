@@ -169,6 +169,7 @@
 	</div>
 	<select class={selectClass} bind:value={categoryId} aria-label="Kategorija" onchange={() => void load(1)}>
 		<option value="">Visos kategorijos</option>
+		<option value="0">— be kategorijos —</option>
 		{#each categories as cat (cat.id)}
 			<option value={cat.id}>{' '.repeat(Math.min(cat.depth, 6) * 2)}{cat.name}</option>
 		{/each}
