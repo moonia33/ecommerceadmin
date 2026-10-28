@@ -1274,8 +1274,16 @@ export type OpsWarehouse = {
 	country_code: string;
 };
 
-export function fetchWarehouses(): Promise<OpsWarehouse[]> {
-	return get<OpsWarehouse[]>('/api/v1/ops/warehouses');
+let _whCache: { ts: number; data: OpsWarehouse[] } | null = null;
+
+export function fetchWarehouses(force = false): Promise<OpsWarehouse[]> {
+	if (!force && _whCache && Date.now() - _whCache.ts < LOOKUPS_TTL_MS) {
+		return Promise.resolve(_whCache.data);
+	}
+	return get<OpsWarehouse[]>('/api/v1/ops/warehouses').then((data) => {
+		_whCache = { ts: Date.now(), data };
+		return data;
+	});
 }
 
 export function fetchOrderReturns(orderId: number | string): Promise<OpsReturn[]> {

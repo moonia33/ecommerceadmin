@@ -791,9 +791,14 @@
 	async function load() {
 		loading = true;
 		try {
-			order = await fetchOrderDetail(orderId);
-			invoices = await fetchOrderInvoices(order.id).catch(() => [] as OpsInvoice[]);
-			returns = await fetchOrderReturns(order.id).catch(() => [] as OpsReturn[]);
+			const o = await fetchOrderDetail(orderId);
+			order = o;
+			const [inv, ret] = await Promise.all([
+				fetchOrderInvoices(o.id).catch(() => [] as OpsInvoice[]),
+				fetchOrderReturns(o.id).catch(() => [] as OpsReturn[])
+			]);
+			invoices = inv;
+			returns = ret;
 		} catch (e) {
 			pushToast('error', e instanceof ApiError ? e.message : 'Nepavyko įkelti užsakymo.');
 		} finally {
