@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { marked } from 'marked';
+	import { uploadProductImage, deleteProductImage, createCatalogVariant, deleteCatalogVariant, adjustInventoryItem } from '#lib/api/client';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import {
@@ -12,7 +13,8 @@
 		Package,
 		Plus,
 		Save,
-		Trash2
+		Trash2,
+		ImagePlus,
 	} from '@lucide/svelte';
 	import Badge from '#lib/components/Badge.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
@@ -73,6 +75,74 @@
 	let baseContent = $state({ description: '', seo_title: '', seo_description: '', seo_keywords: '' });
 	let videoUrlsText = $state('');
 	let descPreview = $state(false);
+	let newVariant = $state({ sku: '', name: '', barcode: '', price_eur: '', cost_eur: '' });
+	let imgBusy = $state(false);
+	let stockDeltas = $state<Record<number, string>>({});
+
+	const MD_TOOLS: [string, string][] = [
+		['**tekstas**','B'],
+		['*tekstas*','I'],
+		['\n\n### Antraštė\n','H3'],
+		['\n- punktas','• sąrašas'],
+		['[nuoroda](https://)','link']
+	];
+
+	function mdWrap(tag: string) {
+		const t = baseContent.description || '';
+		baseContent.description = t + tag;
+	}
+
+	async function uploadImage(ev: Event) {
+		const input = ev.currentTarget as HTMLInputElement;
+		const f = input.files?.[0];
+		if (!f || !product || imgBusy) return;
+		imgBusy = true;
+		try {
+			const img = (await uploadProductImage(product.id, f)) as (typeof product.images)[number];
+			product.images = [...product.images, img];
+			pushToast('success', 'Nuotrauka ikelinta.');
+		} catch (e) { errorMsg(e, 'Ikelti nepavyko.'); }
+		finally { imgBusy = false; input.value = ''; }
+	}
+
+	async function removeImage(id: number) {
+		if (!product || !confirm('Pasalinti nuotrauka?')) return;
+		try {
+			await deleteProductImage(id);
+			product.images = product.images.filter((i) => i.id !== id);
+		} catch (e) { errorMsg(e, 'Nepavyko.'); }
+	}
+
+	async function addVariant() {
+		if (!product || !newVariant.sku.trim()) return;
+		try {
+			const v = await createCatalogVariant(product.id, newVariant);
+			product.variants = [...product.variants, v];
+			variantDrafts[v.id] = { name: v.name, barcode: v.barcode, price_eur: v.price_eur, cost_eur: v.cost_eur, is_active: v.is_active, weight_g: String(v.weight_g ?? ''), length_cm: String(v.length_cm ?? ''), width_cm: String(v.width_cm ?? ''), height_cm: String(v.height_cm ?? ''), options: {} };
+			newVariant = { sku: '', name: '', barcode: '', price_eur: '', cost_eur: '' };
+			pushToast('success', 'Variantas sukurtas.');
+		} catch (e) { errorMsg(e, 'Nepavyko.'); }
+	}
+
+	async function removeVariant(v: { id: number; sku: string }) {
+		if (!product || !confirm('Istrinti varianta ' + v.sku + '?')) return;
+		try {
+			await deleteCatalogVariant(v.id);
+			product.variants = product.variants.filter((x) => x.id !== v.id);
+		} catch (e) { errorMsg(e, 'Nepavyko.'); }
+	}
+
+	async function adjustStock(itemId: number, kind: string) {
+		const d = parseFloat(stockDeltas[itemId] || '0');
+		if (!d) return;
+		try {
+			await adjustInventoryItem(itemId, { delta: d, reason_code: 'correction', comment: '', ...(kind === 'remote' ? { confirm_remote: true } : {}) });
+			const offer = product?.offers.find((o) => o.inventory_item_id === itemId);
+			if (offer) offer.qty_on_hand = (offer.qty_on_hand ?? 0) + d;
+			stockDeltas[itemId] = '';
+			pushToast('success', 'Likutis pakoreguotas.');
+		} catch (e) { errorMsg(e, 'Nepavyko.'); }
+	}
 	let featuresDraft = $state<FeatureDraft[]>([]);
 	let variantDrafts = $state<Record<number, VariantDraft>>({});
 
@@ -621,6 +691,11 @@
 								{descPreview ? 'Redaguoti' : 'Peržiūra'}
 							</button>
 						</div>
+						<div class="mb-1 flex flex-wrap gap-1">
+							{#each MD_TOOLS as [lbl, txt] (txt)}
+								<button type="button" class="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100" onclick={() => mdWrap(lbl)}>{txt}</button>
+							{/each}
+						</div>
 						{#if descPreview}
 							<div
 								class="prose prose-sm mt-1 min-h-40 max-w-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
@@ -1013,6 +1088,7 @@
 								<th class="px-4 py-2.5 text-right font-medium">Laisva</th>
 								<th class="px-4 py-2.5 text-right font-medium">Kaina</th>
 								<th class="px-5 py-2.5 font-medium">Matomumas</th>
+								<th class="px-4 py-2.5 font-medium">Korekcija</th>
 							</tr>
 						</thead>
 						<tbody>

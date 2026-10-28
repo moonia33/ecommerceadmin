@@ -835,6 +835,27 @@ export function updateCatalogVariant(
 	return patch<OpsCatalogVariant>(`/api/v1/ops/catalog/variants/${variantId}`, payload);
 }
 
+export function uploadProductImage(productId: number | string, file: File) {
+	const fd = new FormData();
+	fd.append('file', file);
+	return request(`/api/v1/ops/catalog/products/${productId}/images`, { method: 'POST', body: fd });
+}
+
+export function deleteProductImage(imageId: number | string) {
+	return request(`/api/v1/ops/catalog/images/${imageId}`, { method: 'DELETE' });
+}
+
+export function createCatalogVariant(
+	productId: number | string,
+	payload: { sku: string; name?: string; barcode?: string; price_eur?: string; cost_eur?: string }
+) {
+	return post<OpsCatalogVariant>(`/api/v1/ops/catalog/products/${productId}/variants`, payload);
+}
+
+export function deleteCatalogVariant(variantId: number | string) {
+	return request(`/api/v1/ops/catalog/variants/${variantId}`, { method: 'DELETE' });
+}
+
 export function createFeatureValue(
 	featureId: number | string,
 	value: string
