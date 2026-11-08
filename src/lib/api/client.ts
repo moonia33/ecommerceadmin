@@ -372,6 +372,17 @@ export type OpsCatalogProductDetail = OpsCatalogProduct & {
 	videos: OpsProductVideo[];
 	variants: OpsCatalogVariant[];
 	offers: OpsCatalogOffer[];
+	activities: OpsProductActivity[];
+};
+
+/** Prekės veiklos ryšys: rule (taisyklė), manual (rankinis), exclude (rankinis išėmimas). */
+export type OpsProductActivity = {
+	activity_id: number;
+	code: string;
+	name: string;
+	parent_code: string | null;
+	source: 'rule' | 'manual' | 'exclude';
+	rule_name: string;
 };
 
 export type OpsLanguage = { code: string; name: string };
@@ -411,6 +422,8 @@ export type OpsCatalogLookups = {
 	brands: OpsLookupOption[];
 	categories: OpsLookupOption[];
 	groups: OpsLookupOption[];
+	/** Veiklų medis: depth 0 = sritis, 1 = veikla. */
+	activities: OpsLookupOption[];
 	tax_classes: OpsLookupOption[];
 	features: OpsFeatureOption[];
 	option_types: OpsOptionTypeOption[];
@@ -950,16 +963,19 @@ export function setOfferVisibility(
 	});
 }
 
+export type CatalogActivityAction = 'add_activity' | 'exclude_activity' | 'clear_activity';
+
 export function catalogBulkAction(
-	action: 'activate_products' | 'deactivate_products' | 'assign_category' | 'assign_group',
+	action: 'activate_products' | 'deactivate_products' | 'assign_category' | 'assign_group' | CatalogActivityAction,
 	productIds: number[],
-	opts?: { categoryId?: number | null; groupId?: number | null }
+	opts?: { categoryId?: number | null; groupId?: number | null; activityId?: number | null }
 ): Promise<OpsActionResult> {
 	return post<OpsActionResult>('/api/v1/ops/catalog/bulk-actions', {
 		action,
 		product_ids: productIds,
 		...(action === 'assign_category' ? { category_id: opts?.categoryId ?? null } : {}),
-		...(action === 'assign_group' ? { group_id: opts?.groupId ?? null } : {})
+		...(action === 'assign_group' ? { group_id: opts?.groupId ?? null } : {}),
+		...(action.endsWith('_activity') ? { activity_id: opts?.activityId ?? null } : {})
 	});
 }
 

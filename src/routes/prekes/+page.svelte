@@ -16,6 +16,7 @@
 		fetchCatalogLookups,
 		fetchCatalogProducts,
 		toggleCatalogProduct,
+		type CatalogActivityAction,
 		type OpsCatalogProduct,
 		type OpsLookupOption
 	} from '#lib/api/client';
@@ -36,15 +37,21 @@
 	let categoryId = $state('');
 	let groupId = $state('');
 	let brandId = $state('');
+	let activityId = $state('');
 
 	// Kategorijų lookup (inline redagavimui + bulk priskyrimui)
 	let categories = $state<OpsLookupOption[]>([]);
 	let groups = $state<OpsLookupOption[]>([]);
 	let brands = $state<OpsLookupOption[]>([]);
+	let activities = $state<OpsLookupOption[]>([]);
 	let catBusyId = $state<number | null>(null);
 
 	// Masinio veiksmo patvirtinimas
-	let bulkKind = $state<'' | 'activate_products' | 'deactivate_products' | 'assign_category' | 'assign_group'>('');
+	let bulkKind = $state<
+		'' | 'activate_products' | 'deactivate_products' | 'assign_category' | 'assign_group' | 'activity'
+	>('');
+	let bulkActivityId = $state<number | null>(null);
+	let bulkActivityMode = $state<CatalogActivityAction>('add_activity');
 	let bulkCategoryId = $state<number | null>(null);
 	let createOpen = $state(false);
 	let createDraft = $state({ name: '', sku: '', price_eur: '' });
@@ -94,6 +101,7 @@
 				category_id: categoryId || undefined,
 				group_id: groupId || undefined,
 				brand_id: brandId || undefined,
+				activity_id: activityId || undefined,
 				page: pageNum,
 				page_size: PAGE_SIZE
 			});
@@ -143,8 +151,20 @@
 		if (!bulkKind || bulkBusy || selected.size === 0) return;
 		if (bulkKind === 'assign_category' && bulkCategoryId === null && !confirm('Nuimti kategoriją pažymėtoms prekėms?')) return;
 		if (bulkKind === 'assign_group' && bulkGroupId === null && !confirm('Nuimti grupę pažymėtoms prekėms?')) return;
+		if (bulkKind === 'activity' && bulkActivityId === null) {
+			pushToast('error', 'Pasirinkite veiklą.');
+			return;
+		}
 		bulkBusy = true;
 		try {
+			if (bulkKind === 'activity') {
+				const res = await catalogBulkAction(bulkActivityMode, [...selected], { activityId: bulkActivityId });
+				pushToast('success', `Veiklos pakeistos ${res.updated_ids.length} prekėms.`);
+				bulkKind = '';
+				bulkActivityId = null;
+				await load();
+				return;
+			}
 			const res = await catalogBulkAction(bulkKind, [...selected], { categoryId: bulkCategoryId, groupId: bulkGroupId });
 			pushToast(
 				'success',
@@ -174,6 +194,7 @@
 				categories = l.categories;
 				groups = l.groups;
 				brands = l.brands;
+				activities = l.activities ?? [];
 			})
 			.catch(() => {});
 	});
@@ -236,6 +257,13 @@
 			<option value={b.id}>{b.name}</option>
 		{/each}
 	</select>
+	<select class={selectClass} bind:value={activityId} aria-label="Veikla" onchange={() => void load(1)}>
+		<option value="">Visos veiklos</option>
+		<option value="0">— be veiklos —</option>
+		{#each activities as a (a.id)}
+			<option value={a.id}>{' '.repeat(a.depth * 2)}{a.name}</option>
+		{/each}
+	</select>
 	<select class={selectClass} bind:value={isActive} aria-label="Aktyvumas">
 		<option value="">Visos</option>
 		<option value="true">Aktyvios</option>
@@ -257,6 +285,7 @@
 			categoryId = '';
 			groupId = '';
 			brandId = '';
+			activityId = '';
 			void load(1);
 		}}
 	>
@@ -302,6 +331,17 @@
 			}}
 		>
 			Priskirti grupei
+		</button>
+		<button
+			type="button"
+			class="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-amber-700 ring-1 ring-amber-300 hover:bg-amber-50"
+			onclick={() => {
+				bulkActivityId = null;
+				bulkActivityMode = 'add_activity';
+				bulkKind = 'activity';
+			}}
+		>
+			Veiklos
 		</button>
 		<button
 			type="button"
@@ -475,7 +515,9 @@
 		}
 	}
 	title={
-		bulkKind === 'assign_group'
+		bulkKind === 'activity'
+			? 'Veiklos'
+			: bulkKind === 'assign_group'
 			? 'Priskirti grupei'
 			: bulkKind === 'assign_category'
 				? 'Priskirti kategorijai'
@@ -485,7 +527,33 @@
 	}
 	subtitle={`Veiksmas bus pritaikytas ${selected.size} prekėms.`}
 >
-	{#if bulkKind === 'assign_group'}
+	{#if bulkKind === 'activity'}
+		<label class="block text-sm font-medium text-slate-700" for="bulk-act">Veikla</label>
+		<select
+			id="bulk-act"
+			class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200 focus:outline-none"
+			bind:value={bulkActivityId}
+		>
+			<option value={null}>— pasirinkite —</option>
+			{#each activities as a (a.id)}
+				<option value={a.id}>{' '.repeat(a.depth * 2)}{a.name}</option>
+			{/each}
+		</select>
+		<fieldset class="mt-3 space-y-2 text-sm text-slate-700">
+			<label class="flex items-start gap-2">
+				<input type="radio" class="mt-0.5" bind:group={bulkActivityMode} value="add_activity" />
+				<span>Priskirti rankiniu būdu</span>
+			</label>
+			<label class="flex items-start gap-2">
+				<input type="radio" class="mt-0.5" bind:group={bulkActivityMode} value="exclude_activity" />
+				<span>Išimti iš veiklos <span class="text-slate-500">(nugali automatines taisykles; sritis išima ir iš visų jos veiklų)</span></span>
+			</label>
+			<label class="flex items-start gap-2">
+				<input type="radio" class="mt-0.5" bind:group={bulkActivityMode} value="clear_activity" />
+				<span>Nuimti rankinius pakeitimus <span class="text-slate-500">(lieka tik taisyklių rezultatas)</span></span>
+			</label>
+		</fieldset>
+	{:else if bulkKind === 'assign_group'}
 		<label class="block text-sm font-medium text-slate-700" for="bulk-grp">Grupė</label>
 		<select
 			id="bulk-grp"

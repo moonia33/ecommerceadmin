@@ -21,6 +21,7 @@
 	import Spinner from '#lib/components/Spinner.svelte';
 	import {
 		ApiError,
+		catalogBulkAction,
 		createFeatureValue,
 		fetchCatalogLookups,
 		fetchCatalogProduct,
@@ -29,6 +30,7 @@
 		toggleCatalogProduct,
 		updateCatalogProduct,
 		updateCatalogVariant,
+		type CatalogActivityAction,
 		type OpsCatalogLookups,
 		type OpsCatalogProductDetail,
 		type OpsProductTranslation
@@ -324,6 +326,25 @@
 			pushToast('error', e instanceof ApiError ? e.message : 'Nepavyko įkelti prekės.');
 		} finally {
 			loading = false;
+		}
+	}
+
+	const activitySourceLabel = { rule: 'taisyklė', manual: 'rankinis', exclude: 'išimta' } as const;
+	let newActivityId = $state<number | null>(null);
+	let activityBusy = $state(false);
+
+	async function changeActivity(action: CatalogActivityAction, activityId: number | null) {
+		if (activityId === null || activityBusy) return;
+		activityBusy = true;
+		try {
+			await catalogBulkAction(action, [Number(productId)], { activityId });
+			product = await fetchCatalogProduct(productId);
+			newActivityId = null;
+			pushToast('success', 'Veiklos atnaujintos.');
+		} catch (e) {
+			errorMsg(e, 'Nepavyko pakeisti veiklų.');
+		} finally {
+			activityBusy = false;
 		}
 	}
 
@@ -712,6 +733,75 @@
 					onclick={() => void saveGeneral()}
 				>
 					<Save size={15} /> Išsaugoti
+				</button>
+			</div>
+		</section>
+
+		<section class="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+			<h2 class="text-base font-semibold text-slate-900">Veiklos</h2>
+			<p class="mt-1 text-sm text-slate-500">
+				„Taisyklė“ priskiriama automatiškai. Rankinis priskyrimas ir išėmimas taisykles nugali.
+			</p>
+			{#if product.activities.length === 0}
+				<p class="mt-3 text-sm text-slate-500">Prekė nepriskirta jokiai veiklai.</p>
+			{:else}
+				<ul class="mt-3 divide-y divide-slate-100">
+					{#each product.activities as a (`${a.activity_id}-${a.source}-${a.rule_name}`)}
+						<li class="flex flex-wrap items-center gap-2 py-2 text-sm">
+							<span class={a.source === 'exclude' ? 'text-slate-400 line-through' : 'text-slate-800'}>
+								{a.name}
+							</span>
+							<Badge
+								tone={a.source === 'exclude' ? 'rose' : a.source === 'manual' ? 'sky' : 'slate'}
+								label={`${activitySourceLabel[a.source]}${a.rule_name ? `: ${a.rule_name}` : ''}`}
+							/>
+							<span class="ml-auto flex gap-2">
+								{#if a.source === 'rule'}
+									<button
+										type="button"
+										class="text-xs text-rose-600 hover:underline disabled:opacity-50"
+										disabled={activityBusy}
+										onclick={() => void changeActivity('exclude_activity', a.activity_id)}
+									>
+										Išimti
+									</button>
+								{:else}
+									<button
+										type="button"
+										class="text-xs text-slate-600 hover:underline disabled:opacity-50"
+										disabled={activityBusy}
+										onclick={() => void changeActivity('clear_activity', a.activity_id)}
+									>
+										{a.source === 'exclude' ? 'Grąžinti' : 'Nuimti'}
+									</button>
+								{/if}
+							</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			<div class="mt-3 flex flex-wrap items-center gap-2">
+				<select class={`${inputClass} max-w-xs`} bind:value={newActivityId} aria-label="Veikla">
+					<option value={null}>— pridėti veiklą —</option>
+					{#each lookups?.activities ?? [] as a (a.id)}
+						<option value={a.id}>{' '.repeat(a.depth * 2)}{a.name}</option>
+					{/each}
+				</select>
+				<button
+					type="button"
+					class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+					disabled={activityBusy || newActivityId === null}
+					onclick={() => void changeActivity('add_activity', newActivityId)}
+				>
+					Priskirti
+				</button>
+				<button
+					type="button"
+					class="rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+					disabled={activityBusy || newActivityId === null}
+					onclick={() => void changeActivity('exclude_activity', newActivityId)}
+				>
+					Išimti
 				</button>
 			</div>
 		</section>
