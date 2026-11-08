@@ -1382,3 +1382,205 @@ export function refundSurcharge(surchargeId: number): Promise<OpsSurcharge> {
 export function cancelSurcharge(surchargeId: number): Promise<OpsSurcharge> {
 	return post<OpsSurcharge>(`/api/v1/ops/surcharges/${surchargeId}/cancel`);
 }
+
+// --- CMS: pages, blog, editor media ---
+
+export type TiptapDoc = { type: 'doc'; content?: unknown[] };
+
+export type CmsOption = { id: number | null; code: string; name: string };
+
+export type CmsLookups = {
+	default_language: string;
+	languages: CmsOption[];
+	shops: CmsOption[];
+	page_categories: CmsOption[];
+	blog_categories: CmsOption[];
+};
+
+export type CmsMedia = { id: number; url: string; alt_text: string; width: number | null; height: number | null };
+
+export type CmsPageTranslation = {
+	language_code: string;
+	title: string;
+	seo_title: string;
+	seo_description: string;
+	hero_image: string;
+	hero_image_alt: string;
+	body_json: TiptapDoc | null;
+	body_markdown: string;
+};
+
+export type CmsPageListItem = {
+	id: number;
+	slug: string;
+	shop_id: number | null;
+	shop_code: string;
+	category: string;
+	title: string;
+	is_active: boolean;
+	languages: string[];
+	uses_editor: boolean;
+	updated_at: string;
+};
+
+export type CmsPageDetail = CmsPageListItem & {
+	category_id: number | null;
+	sort_order: number;
+	translations: CmsPageTranslation[];
+};
+
+export type CmsPageTranslationIn = {
+	language_code: string;
+	title: string;
+	seo_title: string;
+	seo_description: string;
+	hero_image_alt: string;
+	body_json: TiptapDoc | null;
+	remove_hero_image?: boolean;
+};
+
+export type CmsPageIn = {
+	slug: string;
+	shop_id: number | null;
+	category_id: number | null;
+	sort_order: number;
+	is_active: boolean;
+	translations: CmsPageTranslationIn[];
+};
+
+export type BlogState = 'draft' | 'scheduled' | 'published';
+
+export type BlogTranslation = {
+	language_code: string;
+	slug: string;
+	title: string;
+	excerpt: string;
+	body_json: TiptapDoc | null;
+	seo_title: string;
+	seo_description: string;
+	cover_image_alt: string;
+	reading_minutes?: number;
+};
+
+export type BlogProductRef = { id: number; sku: string; name: string; image: string };
+
+export type BlogPostListItem = {
+	id: number;
+	shop_id: number | null;
+	shop_code: string;
+	status: 'draft' | 'published';
+	state: BlogState;
+	published_at: string | null;
+	title: string;
+	slug: string;
+	languages: string[];
+	cover_image: string;
+	author_name: string;
+	is_featured: boolean;
+	updated_at: string;
+};
+
+export type BlogPostDetail = BlogPostListItem & {
+	category_ids: number[];
+	related_products: BlogProductRef[];
+	related_category_ids: number[];
+	translations: BlogTranslation[];
+};
+
+export type BlogPostIn = {
+	shop_id: number | null;
+	status: 'draft' | 'published';
+	published_at: string | null;
+	author_name: string;
+	is_featured: boolean;
+	category_ids: number[];
+	related_product_ids: number[];
+	related_category_ids: number[];
+	remove_cover_image?: boolean;
+	translations: BlogTranslation[];
+};
+
+export type BlogCategoryTranslation = { language_code: string; name: string; description: string };
+
+export type BlogCategory = {
+	id: number;
+	slug: string;
+	shop_id: number | null;
+	sort_order: number;
+	is_active: boolean;
+	translations: BlogCategoryTranslation[];
+};
+
+export type BlogCategoryIn = Omit<BlogCategory, 'id'>;
+
+function upload<T>(path: string, file: File, extra: Record<string, string> = {}): Promise<T> {
+	const fd = new FormData();
+	fd.append('file', file);
+	return request<T>(`${path}${toQueryString(extra)}`, { method: 'POST', body: fd });
+}
+
+let cmsLookupsCache: CmsLookups | null = null;
+
+export async function fetchCmsLookups(force = false): Promise<CmsLookups> {
+	if (cmsLookupsCache && !force) return cmsLookupsCache;
+	cmsLookupsCache = await get<CmsLookups>('/api/v1/ops/cms/lookups');
+	return cmsLookupsCache;
+}
+
+export function uploadCmsMedia(file: File, altText = ''): Promise<CmsMedia> {
+	return upload<CmsMedia>('/api/v1/ops/cms/media', file, { alt_text: altText });
+}
+
+export function fetchCmsPages(params: QueryParams = {}): Promise<Paged<CmsPageListItem>> {
+	return get<Paged<CmsPageListItem>>('/api/v1/ops/cms/pages', params);
+}
+
+export function fetchCmsPage(id: number | string): Promise<CmsPageDetail> {
+	return get<CmsPageDetail>(`/api/v1/ops/cms/pages/${id}`);
+}
+
+export function createCmsPage(payload: CmsPageIn): Promise<CmsPageDetail> {
+	return post<CmsPageDetail>('/api/v1/ops/cms/pages', payload);
+}
+
+export function updateCmsPage(id: number | string, payload: CmsPageIn): Promise<CmsPageDetail> {
+	return patch<CmsPageDetail>(`/api/v1/ops/cms/pages/${id}`, payload);
+}
+
+export function uploadCmsPageHero(id: number | string, languageCode: string, file: File): Promise<CmsPageDetail> {
+	return upload<CmsPageDetail>(`/api/v1/ops/cms/pages/${id}/hero`, file, { language_code: languageCode });
+}
+
+export function fetchBlogPosts(params: QueryParams = {}): Promise<Paged<BlogPostListItem>> {
+	return get<Paged<BlogPostListItem>>('/api/v1/ops/cms/blog/posts', params);
+}
+
+export function fetchBlogPost(id: number | string): Promise<BlogPostDetail> {
+	return get<BlogPostDetail>(`/api/v1/ops/cms/blog/posts/${id}`);
+}
+
+export function createBlogPost(payload: BlogPostIn): Promise<BlogPostDetail> {
+	return post<BlogPostDetail>('/api/v1/ops/cms/blog/posts', payload);
+}
+
+export function updateBlogPost(id: number | string, payload: BlogPostIn): Promise<BlogPostDetail> {
+	return patch<BlogPostDetail>(`/api/v1/ops/cms/blog/posts/${id}`, payload);
+}
+
+export function deleteBlogPost(id: number | string): Promise<{ ok: boolean }> {
+	return request<{ ok: boolean }>(`/api/v1/ops/cms/blog/posts/${id}`, { method: 'DELETE' });
+}
+
+export function uploadBlogCover(id: number | string, file: File): Promise<BlogPostDetail> {
+	return upload<BlogPostDetail>(`/api/v1/ops/cms/blog/posts/${id}/cover`, file);
+}
+
+export function fetchBlogCategories(): Promise<BlogCategory[]> {
+	return get<BlogCategory[]>('/api/v1/ops/cms/blog/categories');
+}
+
+export function saveBlogCategory(id: number | null, payload: BlogCategoryIn): Promise<BlogCategory> {
+	return id
+		? patch<BlogCategory>(`/api/v1/ops/cms/blog/categories/${id}`, payload)
+		: post<BlogCategory>('/api/v1/ops/cms/blog/categories', payload);
+}

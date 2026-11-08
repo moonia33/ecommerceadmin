@@ -4,9 +4,11 @@
 	import {
 		Boxes,
 		CreditCard,
+		FileStack,
 		FileText,
 		LayoutDashboard,
 		LogOut,
+		Newspaper,
 		Package,
 		ScrollText,
 		Truck,
@@ -27,6 +29,8 @@
 		{ href: '/atsargos', label: 'Atsargos', icon: Warehouse },
 		{ href: '/prekes', label: 'Prekės', icon: Boxes },
 		{ href: '/klientai', label: 'Klientai', icon: Users },
+		{ href: '/turinys', label: 'Puslapiai', icon: FileStack },
+		{ href: '/blogas', label: 'Blogas', icon: Newspaper },
 		{ href: '/auditas', label: 'Auditas', icon: ScrollText }
 	];
 
